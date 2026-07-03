@@ -246,13 +246,28 @@ def create_app(get_controller_fn):
         if not pf:
             return jsonify(error='patternflow mode not loaded'), 404
         data = request.get_json(force=True, silent=True) or {}
-        knob = int(data.get('knob', 0))
-        if not (0 <= knob <= 3):
-            return jsonify(error='knob must be 0-3'), 400
-        pf.web_button(knob)
+        button = int(data.get('button', data.get('knob', 0)))
+        if not (0 <= button <= 5):
+            return jsonify(error='button must be 0-5'), 400
+        pf.web_button(button)
         return jsonify(status='ok')
 
     # ── Shutdown ──────────────────────────────────────────────────────────────
+
+    @app.route('/api/patternflow/options', methods=['POST'])
+    def pf_options():
+        c = ctrl()
+        if not c:
+            return jsonify(error='controller not ready'), 503
+        pf = c.modes.get('patternflow')
+        if not pf:
+            return jsonify(error='patternflow mode not loaded'), 404
+        data = request.get_json(force=True, silent=True) or {}
+        pf.set_options(
+            show_fps=data.get('show_fps') if 'show_fps' in data else None,
+            donut_fast_render=data.get('donut_fast_render') if 'donut_fast_render' in data else None,
+        )
+        return jsonify(status='ok', **pf.get_current_pattern())
 
     @app.route('/api/shutdown', methods=['POST'])
     def shutdown():

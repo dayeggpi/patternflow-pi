@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>LED Matrix Control</title>
-<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/style.css?v=20260704-2">
 </head>
 <body>
 <div class="container">
@@ -105,6 +105,10 @@
   <section class="card" id="panel-patternflow">
     <h2>Patternflow</h2>
     <p class="hint">Select a pattern, then use the knob controls below.</p>
+    <div class="pf-options">
+      <label><input type="checkbox" id="pf-show-fps"> Show FPS</label>
+      <label><input type="checkbox" id="pf-donut-fast"> Donut fast render</label>
+    </div>
     <div class="mode-buttons" id="pf-pattern-buttons"></div>
     <div class="pf-knob-grid" id="pf-knob-controls"></div>
   </section>
@@ -122,6 +126,6 @@
 </div>
 
 <div id="toast"></div>
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v=20260704-2"></script>
 </body>
 </html>

@@ -42,6 +42,7 @@ _DEFAULT_ENC_CFG = [
     {"clk": -1, "dt": -1, "sw": -1},
     {"clk": -1, "dt": -1, "sw": -1},
 ]
+_DEFAULT_EXTRA_BUTTON_PINS = [-1, -1]
 
 
 class PatternflowMode(BaseMode):
@@ -56,8 +57,10 @@ class PatternflowMode(BaseMode):
         self._enc_ok       = False
         self._content_notice = 0.0
         self._font = ImageFont.load_default()
+        self._show_fps = False
+        self._fps_ema = 0.0
         self._web_deltas = [0, 0, 0, 0]
-        self._web_btns   = [False, False, False, False]
+        self._web_btns   = [False, False, False, False, False, False]
         self._web_lock   = threading.Lock()
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -69,13 +72,16 @@ class PatternflowMode(BaseMode):
         cfg = self.config.get_section('patternflow')
         idx = cfg.get('current_pattern', 0)
         self._current_idx = max(0, min(idx, len(self._patterns) - 1))
+        self._show_fps = bool(cfg.get('show_fps', False))
+        self._apply_pattern_options(cfg)
 
         encoders_enabled = cfg.get('encoders_enabled', False)
         if encoders_enabled:
             enc_cfg = cfg.get('encoders', _DEFAULT_ENC_CFG)
+            extra_button_pins = cfg.get('extra_buttons', _DEFAULT_EXTRA_BUTTON_PINS)
             invert  = cfg.get('invert_encoder', False)
             try:
-                self._enc_ok = pf_enc.init_encoders(enc_cfg, invert)
+                self._enc_ok = pf_enc.init_encoders(enc_cfg, invert, extra_button_pins)
             except Exception as e:
                 logger.warning(f"Encoder init error: {e}")
                 self._enc_ok = False
@@ -110,6 +116,27 @@ class PatternflowMode(BaseMode):
         with self._web_lock:
             self._web_btns[knob] = True
 
+    def set_options(self, show_fps=None, donut_fast_render=None):
+        update = {}
+        if show_fps is not None:
+            self._show_fps = bool(show_fps)
+            update['show_fps'] = self._show_fps
+        if donut_fast_render is not None:
+            update['donut_fast_render'] = bool(donut_fast_render)
+        if update:
+            self.config.set_section('patternflow', update)
+            self._apply_pattern_options(self.config.get_section('patternflow'))
+
+    def _apply_pattern_options(self, cfg: dict):
+        donut_fast = bool(cfg.get('donut_fast_render', False))
+        for pat in self._patterns:
+            setter = getattr(pat, 'set_fast_render', None)
+            if setter:
+                try:
+                    setter(donut_fast)
+                except Exception as e:
+                    logger.warning(f"Pattern option error ({pat.NAME}): {e}")
+
     def set_pattern(self, idx: int):
         self._current_idx = max(0, min(idx, len(self._patterns) - 1))
         self._content_notice = 1.0
@@ -120,7 +147,14 @@ class PatternflowMode(BaseMode):
 
     def get_current_pattern(self) -> dict:
         p = self._patterns[self._current_idx]
-        return {'index': self._current_idx, 'name': p.NAME, 'knob_labels': list(p.KNOB_LABELS)}
+        return {
+            'index': self._current_idx,
+            'name': p.NAME,
+            'knob_labels': list(p.KNOB_LABELS),
+            'extra_button_labels': list(getattr(p, 'EXTRA_BUTTON_LABELS', [])),
+            'show_fps': self._show_fps,
+            'donut_fast_render': bool(self.config.get_section('patternflow').get('donut_fast_render', False)),
+        }
 
     # ── Render (called by MatrixController every vsync) ───────────────────────
 
@@ -128,6 +162,9 @@ class PatternflowMode(BaseMode):
         now = time.monotonic()
         dt  = max(0.0, min(now - self._last_t, 0.1))  # cap at 100ms to avoid jumps
         self._last_t = now
+        if dt > 0.0:
+            fps = 1.0 / dt
+            self._fps_ema = fps if self._fps_ema <= 0.0 else self._fps_ema * 0.88 + fps * 0.12
 
         if self._enc_ok:
             inp = pf_enc.read_input_frame(self._prev_knobs, self._last_delta_t)
@@ -138,10 +175,11 @@ class PatternflowMode(BaseMode):
         with self._web_lock:
             for i in range(4):
                 inp.knob_deltas[i] += self._web_deltas[i]
+            for i in range(len(self._web_btns)):
                 if self._web_btns[i]:
                     inp.btn_pressed[i] = True
             self._web_deltas = [0, 0, 0, 0]
-            self._web_btns   = [False, False, False, False]
+            self._web_btns   = [False, False, False, False, False, False]
 
         self._handle_select(inp)
 
@@ -180,6 +218,8 @@ class PatternflowMode(BaseMode):
 
         if self._app_mode == _MODE_SELECTING:
             self._draw_select_overlay(canvas, pat.NAME)
+        elif self._show_fps:
+            self._draw_fps(canvas)
 
     # ── Input handling ────────────────────────────────────────────────────────
 
@@ -220,6 +260,9 @@ class PatternflowMode(BaseMode):
 
     def _draw_notice(self, canvas, name: str):
         self._text_onto_canvas(canvas, name, -1, pf_canvas.H // 2 - 4, (255, 255, 255), scrim=True)
+
+    def _draw_fps(self, canvas):
+        self._text_onto_canvas(canvas, f"{self._fps_ema:4.1f}", 1, 1, (80, 255, 120), scrim=True)
 
     def _draw_select_overlay(self, canvas, name: str):
         n   = len(self._patterns)

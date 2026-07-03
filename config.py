@@ -34,12 +34,15 @@ DEFAULT_CONFIG = {
         "current_pattern": 0,
         "encoders_enabled": False,
         "invert_encoder": False,
+        "show_fps": False,
+        "donut_fast_render": False,
         "encoders": [
             {"clk": -1, "dt": -1, "sw": -1},
             {"clk": -1, "dt": -1, "sw": -1},
             {"clk": -1, "dt": -1, "sw": -1},
             {"clk": -1, "dt": -1, "sw": -1}
-        ]
+        ],
+        "extra_buttons": [-1, -1]
     }
 }
 

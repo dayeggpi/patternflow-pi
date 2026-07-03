@@ -13,6 +13,7 @@ from .patterns import (
     pattern010,
     pattern011,
     pattern012,
+    patterndonut,
 )
 
 # Each entry is a module with: NAME, KNOB_LABELS, setup(), update(dt, inp), draw()
@@ -32,4 +33,5 @@ PATTERNS = [
     pattern010,
     pattern011,
     pattern012,
+    patterndonut,
 ]

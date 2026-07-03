@@ -307,6 +307,13 @@ The new mode will appear automatically in the web UI.
 
 ## Service Management
 
+After changing code, update the installed app and restart the service with:
+
+```bash
+cd /dashboard/claude/led-matrix
+sudo bash update.sh
+```
+
 ```bash
 # Status
 sudo systemctl status led-matrix

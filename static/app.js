@@ -91,7 +91,8 @@ async function init() {
   try {
     const pf = await api('/api/patternflow/patterns');
     if (pf && pf.patterns) {
-      loadPfPatterns(pf.patterns, pf.index, pf.knob_labels);
+      loadPfPatterns(pf.patterns, pf.index, pf.knob_labels, pf.extra_button_labels);
+      syncPfOptions(pf);
     }
   } catch (_) {}
 
@@ -132,6 +133,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const gs = document.getElementById('gol-speed');
   const gv = document.getElementById('gol-speed-val');
   gs.addEventListener('input', () => gv.textContent = gs.value);
+
+  ensurePfOptions();
+  document.getElementById('pf-show-fps')?.addEventListener('change', savePfOptions);
+  document.getElementById('pf-donut-fast')?.addEventListener('change', savePfOptions);
 
   init();
 });
@@ -208,7 +213,23 @@ async function authorizeSpotify() {
 
 // ── Patternflow ───────────────────────────────────────────────────────────────
 
-function loadPfPatterns(names, activeIdx, knobLabels) {
+function ensurePfOptions() {
+  if (document.getElementById('pf-show-fps') && document.getElementById('pf-donut-fast')) return;
+  const panel = document.getElementById('panel-patternflow');
+  const patternButtons = document.getElementById('pf-pattern-buttons');
+  if (!panel || !patternButtons) return;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'pf-options';
+  wrap.innerHTML = [
+    '<label><input type="checkbox" id="pf-show-fps"> Show FPS</label>',
+    '<label><input type="checkbox" id="pf-donut-fast"> Donut fast render</label>',
+  ].join('');
+  panel.insertBefore(wrap, patternButtons);
+}
+
+function loadPfPatterns(names, activeIdx, knobLabels, extraButtonLabels) {
+  ensurePfOptions();
   const container = document.getElementById('pf-pattern-buttons');
   if (!container) return;
   container.innerHTML = '';
@@ -220,10 +241,10 @@ function loadPfPatterns(names, activeIdx, knobLabels) {
     btn.onclick = () => setPfPattern(i, name, names, knobLabels);
     container.appendChild(btn);
   });
-  buildPfKnobs(knobLabels);
+  buildPfKnobs(knobLabels, extraButtonLabels);
 }
 
-function buildPfKnobs(labels) {
+function buildPfKnobs(labels, extraButtonLabels) {
   const grid = document.getElementById('pf-knob-controls');
   if (!grid || !labels) return;
   grid.innerHTML = '';
@@ -252,6 +273,30 @@ function buildPfKnobs(labels) {
     grid.appendChild(name);
     grid.appendChild(btns);
   });
+
+  (extraButtonLabels || []).forEach((label, i) => {
+    const num = document.createElement('span');
+    num.className = 'pf-k-num';
+    num.textContent = `B${i + 1}`;
+
+    const name = document.createElement('span');
+    name.className = 'pf-k-name';
+    name.textContent = label;
+
+    const btns = document.createElement('div');
+    btns.className = 'pf-k-btns';
+
+    const b = document.createElement('button');
+    b.className = 'pf-btn pf-btn-action';
+    b.textContent = 'Press';
+    b.title = label;
+    b.onclick = () => pfBtn(4 + i);
+    btns.appendChild(b);
+
+    grid.appendChild(num);
+    grid.appendChild(name);
+    grid.appendChild(btns);
+  });
 }
 
 async function pfKnob(knob, delta) {
@@ -262,6 +307,22 @@ async function pfBtn(knob) {
   await api('/api/patternflow/button', 'POST', { knob });
 }
 
+function syncPfOptions(data) {
+  ensurePfOptions();
+  const fps = document.getElementById('pf-show-fps');
+  const fast = document.getElementById('pf-donut-fast');
+  if (fps) fps.checked = !!data.show_fps;
+  if (fast) fast.checked = !!data.donut_fast_render;
+}
+
+async function savePfOptions() {
+  const show_fps = !!document.getElementById('pf-show-fps')?.checked;
+  const donut_fast_render = !!document.getElementById('pf-donut-fast')?.checked;
+  const data = await api('/api/patternflow/options', 'POST', { show_fps, donut_fast_render });
+  if (data.error) { toast(data.error, false); return; }
+  syncPfOptions(data);
+}
+
 async function setPfPattern(idx, name, allNames, prevLabels) {
   const data = await api('/api/patternflow/pattern', 'POST', { index: idx });
   if (data.error) { toast(data.error, false); return; }
@@ -269,7 +330,8 @@ async function setPfPattern(idx, name, allNames, prevLabels) {
   document.querySelectorAll('#pf-pattern-buttons .mode-btn').forEach((b, i) => {
     b.classList.toggle('active', i === idx);
   });
-  buildPfKnobs(data.knob_labels || prevLabels);
+  buildPfKnobs(data.knob_labels || prevLabels, data.extra_button_labels || []);
+  syncPfOptions(data);
 
   document.querySelectorAll('.mode-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.mode === 'patternflow');

@@ -20,8 +20,8 @@ class InputFrame:
     def __init__(self):
         self.knobs:       list[int]  = [0, 0, 0, 0]
         self.knob_deltas: list[int]  = [0, 0, 0, 0]
-        self.btn_pressed: list[bool] = [False, False, False, False]
-        self.btn_held:    list[bool] = [False, False, False, False]
+        self.btn_pressed: list[bool] = [False, False, False, False, False, False]
+        self.btn_held:    list[bool] = [False, False, False, False, False, False]
         self.now:         float      = 0.0
 
 
@@ -102,20 +102,22 @@ _LOGICAL_TO_PHYS = [1, 0, 2, 3]
 
 _encoders: list[RotaryEncoder] = []
 _buttons:  list[Button | None] = []
+_extra_buttons: list[Button | None] = []
 
 
-def init_encoders(enc_cfg: list[dict], invert: bool = False) -> bool:
+def init_encoders(enc_cfg: list[dict], invert: bool = False, extra_button_pins: list[int] | None = None) -> bool:
     """
     enc_cfg: list of 4 dicts with keys 'clk', 'dt', 'sw' (BCM pin numbers).
              Use -1 for unconnected pins. Returns True if at least one encoder inited.
     """
-    global _encoders, _buttons
+    global _encoders, _buttons, _extra_buttons
     if not _GPIO_OK:
         logger.warning("RPi.GPIO not available — encoders disabled")
         return False
 
     _encoders.clear()
     _buttons.clear()
+    _extra_buttons.clear()
 
     ok = False
     for i, cfg in enumerate(enc_cfg):
@@ -138,6 +140,13 @@ def init_encoders(enc_cfg: list[dict], invert: bool = False) -> bool:
             logger.warning(f"Button {i+1} init failed (SW={sw}): {e}")
             _buttons.append(None)
 
+    for i, pin in enumerate((extra_button_pins or [])[:2]):
+        try:
+            _extra_buttons.append(Button(pin) if pin >= 0 else None)
+        except Exception as e:
+            logger.warning(f"Extra button {i+1} init failed (GPIO={pin}): {e}")
+            _extra_buttons.append(None)
+
     return ok
 
 
@@ -147,6 +156,7 @@ def cleanup_encoders():
             enc.remove()
     _encoders.clear()
     _buttons.clear()
+    _extra_buttons.clear()
 
 
 def _enc(logical: int):
@@ -157,6 +167,11 @@ def _enc(logical: int):
 def _btn(logical: int):
     phys = _LOGICAL_TO_PHYS[logical]
     return _buttons[phys] if phys < len(_buttons) else None
+
+
+def _extra_btn(logical: int):
+    idx = logical - 4
+    return _extra_buttons[idx] if 0 <= idx < len(_extra_buttons) else None
 
 
 def read_input_frame(prev_knobs: list[int], last_delta_t: list[float]) -> InputFrame:
@@ -185,6 +200,11 @@ def read_input_frame(prev_knobs: list[int], last_delta_t: list[float]) -> InputF
         btn = _btn(i)
         inp.btn_pressed[i] = btn.pressed()  if btn else False
         inp.btn_held[i]    = btn.is_down()  if btn else False
+
+    for i in range(4, 6):
+        btn = _extra_btn(i)
+        inp.btn_pressed[i] = btn.pressed() if btn else False
+        inp.btn_held[i] = btn.is_down() if btn else False
 
     return inp
 
