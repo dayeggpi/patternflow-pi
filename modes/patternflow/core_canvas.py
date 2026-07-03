@@ -80,7 +80,7 @@ def render_to(canvas):
         logger.info(f"render_to diag: out shape={out.shape} nonzero_pixels={nonzero}/{H*W}")
         _diag_done = True
 
-    rows = out.tolist()
-    for y, row in enumerate(rows):
-        for x, (r, g, b) in enumerate(row):
-            canvas.SetPixel(x, y, r, g, b)
+    for y in range(H):
+        for x in range(W):
+            r, g, b = out[y, x]
+            canvas.SetPixel(x, y, int(r), int(g), int(b))

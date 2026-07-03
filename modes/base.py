@@ -1,14 +1,15 @@
 from abc import ABC, abstractmethod
-import numpy as np
 
 
 def image_to_canvas(canvas, img):
     """Push a PIL RGB image via SetPixel. SetImage skips rows on some builds."""
-    arr = np.array(img)
-    h, w = arr.shape[:2]
-    rows = arr.tolist()
-    for y, row in enumerate(rows):
-        for x, (r, g, b) in enumerate(row):
+    if img.mode != 'RGB':
+        img = img.convert('RGB')
+    pixels = img.load()
+    w, h = img.size
+    for y in range(h):
+        for x in range(w):
+            r, g, b = pixels[x, y]
             canvas.SetPixel(x, y, r, g, b)
 
 

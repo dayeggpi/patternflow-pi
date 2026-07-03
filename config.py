@@ -1,3 +1,4 @@
+import copy
 import json
 import os
 import threading
@@ -50,7 +51,7 @@ class Config:
         self._load()
 
     def _deep_copy(self, d):
-        return json.loads(json.dumps(d))
+        return copy.deepcopy(d)
 
     def _load(self):
         if os.path.exists(CONFIG_FILE):

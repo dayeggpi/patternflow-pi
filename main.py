@@ -166,7 +166,6 @@ class MatrixController:
 
                 if mode:
                     try:
-                        canvas.Clear()
                         mode.render(canvas)
                     except Exception as e:
                         logger.error(f"Render error: {e}")

@@ -1,0 +1,22 @@
+[Unit]
+Description=LED Matrix Controller
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/led-matrix
+ExecStartPre=/opt/led-matrix/wait-for-network.sh
+ExecStart=/opt/led-matrix/venv/bin/python /opt/led-matrix/main.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Give GPIO/DMA access
+AmbientCapabilities=CAP_SYS_RAWIO CAP_NET_BIND_SERVICE
+PrivilegeEscalation=true
+
+[Install]
+WantedBy=multi-user.target

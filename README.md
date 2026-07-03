@@ -114,6 +114,7 @@ The installer:
 - Installs Python packages (Flask, Pillow, spotipy, …)
 - **Disables audio** in `/boot/config.txt` (required — the matrix PWM conflicts with the Pi's audio hardware)
 - Installs and enables the `led-matrix` systemd service
+- Waits for Wi-Fi/networking before launching `main.py`
 
 ### 4. Reboot
 
@@ -186,7 +187,7 @@ Open `http://<pi-ip>:8080` in any browser.
 - **Text** — content, color, size (1–3), scroll speed, scroll toggle
 - **Game of Life** — color, speed, edge wrap
 - **Spotify** — credentials, authorize button
-- **System** — restart service, shutdown Pi
+- **System** — restart service, stop service, disable autostart, shutdown Pi
 
 ---
 
@@ -244,6 +245,13 @@ Triggers `sudo shutdown -h now` on the Pi.
 
 ### POST /api/restart
 Restarts the `led-matrix` systemd service.
+
+### POST /api/service/stop
+Stops the `led-matrix` systemd service. The web UI will go offline until the
+service is started again from SSH or the Pi is rebooted with autostart enabled.
+
+### POST /api/service/disable
+Disables autostart after reboot without stopping the currently running service.
 
 ---
 
@@ -312,8 +320,50 @@ sudo systemctl restart led-matrix
 # Stop
 sudo systemctl stop led-matrix
 
+# Start again after stopping
+sudo systemctl start led-matrix
+
 # Disable autostart
 sudo systemctl disable led-matrix
+
+# Re-enable autostart
+sudo systemctl enable led-matrix
+```
+
+The installed service is `/etc/systemd/system/led-matrix.service`. It starts
+`/opt/led-matrix/main.py` after `network-online.target` and after
+`/opt/led-matrix/wait-for-network.sh` sees a default route plus an IPv4 address.
+
+Emergency autostart kill switch if the app prevents normal access:
+
+```bash
+sudo nano /etc/systemd/system/led-matrix.service
+```
+
+Change this line:
+
+```ini
+ExecStart=/opt/led-matrix/venv/bin/python /opt/led-matrix/main.py
+```
+
+to:
+
+```ini
+ExecStart=/bin/sleep infinity
+```
+
+Then run:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart led-matrix
+```
+
+To restore the app, put the original `ExecStart` line back, then run:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart led-matrix
 ```
 
 ---

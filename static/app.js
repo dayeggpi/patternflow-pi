@@ -287,6 +287,19 @@ async function restartService() {
   toast('Service restarting…');
 }
 
+async function stopService() {
+  if (!confirm('Stop the LED Matrix service? The web UI will go offline until you start it again from SSH.')) return;
+  await api('/api/service/stop', 'POST');
+  toast('Service stopping...');
+}
+
+async function disableAutostart() {
+  if (!confirm('Disable LED Matrix autostart after reboot? The current service will keep running.')) return;
+  const data = await api('/api/service/disable', 'POST');
+  if (data.error) { toast(data.error, false); return; }
+  toast('Autostart disabled');
+}
+
 async function confirmShutdown() {
   if (!confirm('Shut down the Raspberry Pi?')) return;
   await api('/api/shutdown', 'POST');

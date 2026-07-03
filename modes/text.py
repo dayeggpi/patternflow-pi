@@ -1,4 +1,5 @@
 import time
+from functools import lru_cache
 from PIL import Image, ImageDraw, ImageFont
 from modes.base import BaseMode, image_to_canvas
 
@@ -7,11 +8,12 @@ def _paste_text(img, pos, text, color, font):
     """Draw text via grayscale mask to avoid FreeType sub-pixel color artifacts."""
     mask = Image.new('L', img.size, 0)
     ImageDraw.Draw(mask).text(pos, text, fill=255, font=font)
-    img.paste(Image.new('RGB', img.size, color), mask=mask)
+    img.paste(color, mask=mask)
 
 FONT_PATH = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
 
 
+@lru_cache(maxsize=8)
 def load_font(size=8):
     try:
         return ImageFont.truetype(FONT_PATH, size)
@@ -27,30 +29,46 @@ class TextMode(BaseMode):
         super().__init__(config)
         self.scroll_x = 64.0
         self.last_frame = time.time()
+        self._cfg = {}
+        self._last_cfg_load = 0.0
+        self._layout_key = None
+        self._font = None
+        self._text_w = 0
+        self._text_y = 0
 
     def start(self):
         super().start()
         self.scroll_x = 64.0
         self.last_frame = time.time()
+        self._last_cfg_load = 0.0
+
+    def _load_runtime(self):
+        now = time.time()
+        if now - self._last_cfg_load >= 0.25 or not self._cfg:
+            self._cfg = self.config.get_section('text')
+            self._last_cfg_load = now
+
+        content = self._cfg.get('content', 'Hello World!')
+        size = int(self._cfg.get('size', 1))
+        font_size = min(30, max(6, size * 8))
+        layout_key = (content, font_size)
+        if layout_key != self._layout_key:
+            self._font = load_font(font_size)
+            bbox = self._font.getbbox(content)
+            self._text_w = bbox[2] - bbox[0]
+            text_h = bbox[3] - bbox[1]
+            self._text_y = max(0, (32 - text_h) // 2)
+            self._layout_key = layout_key
+
+        return self._cfg, content, self._font, self._text_w, self._text_y
 
     def render(self, canvas):
-        cfg = self.config.get_section('text')
-        content = cfg.get('content', 'Hello World!')
+        cfg, content, font, text_w, text_y = self._load_runtime()
         color = tuple(cfg.get('color', [255, 255, 255]))
         speed = cfg.get('speed', 30)      # pixels per second
         scroll = cfg.get('scroll', True)
-        size = int(cfg.get('size', 1))    # 1=small(8px), 2=med(16px), 3=large(24px)
-
-        font_size = min(30, max(6, size * 8))
-        font = load_font(font_size)
 
         img = Image.new('RGB', (64, 32), (0, 0, 0))
-        draw = ImageDraw.Draw(img)
-
-        bbox = draw.textbbox((0, 0), content, font=font)
-        text_w = bbox[2] - bbox[0]
-        text_h = bbox[3] - bbox[1]
-        text_y = max(0, (32 - text_h) // 2)
 
         if scroll:
             now = time.time()

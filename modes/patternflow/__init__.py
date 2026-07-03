@@ -19,6 +19,7 @@ import time
 import logging
 import threading
 
+import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from modes.base import BaseMode
@@ -211,10 +212,9 @@ class PatternflowMode(BaseMode):
             draw.rectangle([cx - 1, y - 1, cx + tw + 1, y + 8], fill=(0, 0, 0))
 
         draw.text((cx, y), text, font=self._font, fill=color)
-        import numpy as np
         arr = np.array(img)
         ys, xs = np.where((arr[:, :, 0] > 0) | (arr[:, :, 1] > 0) | (arr[:, :, 2] > 0))
-        for ry, rx in zip(ys.tolist(), xs.tolist()):
+        for ry, rx in zip(ys, xs):
             r, g, b = arr[ry, rx]
             canvas.SetPixel(rx, ry, int(r), int(g), int(b))
 

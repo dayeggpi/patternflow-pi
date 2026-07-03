@@ -269,4 +269,17 @@ def create_app(get_controller_fn):
         os.system("sudo systemctl restart led-matrix")
         return jsonify(status='restarting')
 
+    @app.route('/api/service/stop', methods=['POST'])
+    def stop_service():
+        def _stop():
+            os.system("systemctl stop led-matrix")
+
+        threading.Timer(0.5, _stop).start()
+        return jsonify(status='stopping')
+
+    @app.route('/api/service/disable', methods=['POST'])
+    def disable_service():
+        os.system("systemctl disable led-matrix")
+        return jsonify(status='autostart disabled')
+
     return app
