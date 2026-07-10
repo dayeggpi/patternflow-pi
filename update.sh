@@ -46,6 +46,12 @@ else
       cp -a "$SCRIPT_DIR/$d" "$INSTALL_DIR/"
     fi
   done
+  for d in tools; do
+    if [ -d "$SCRIPT_DIR/$d" ]; then
+      rm -rf "$INSTALL_DIR/$d"
+      cp -a "$SCRIPT_DIR/$d" "$INSTALL_DIR/"
+    fi
+  done
 fi
 
 find "$INSTALL_DIR" -maxdepth 1 -type f \( -name "*.sh" -o -name "*.service" \) -exec sed -i 's/\r$//' {} +
@@ -53,7 +59,30 @@ chmod +x "$INSTALL_DIR/wait-for-network.sh"
 chmod +x "$INSTALL_DIR/update.sh" 2>/dev/null || true
 chmod +x "$INSTALL_DIR/install.sh" 2>/dev/null || true
 
+if [ -f "$INSTALL_DIR/config.json" ]; then
+  python3 - "$INSTALL_DIR/config.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8") as f:
+    config = json.load(f)
+
+config.pop("ledder", None)
+if config.get("mode") == "ledder":
+    config["mode"] = "clock"
+
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(config, f, indent=2)
+    f.write("\n")
+PY
+fi
+
 install -m 644 "$INSTALL_DIR/led-matrix.service" /etc/systemd/system/led-matrix.service
+if systemctl list-unit-files ledder-sidecar.service >/dev/null 2>&1; then
+  systemctl disable --now ledder-sidecar.service || true
+  rm -f /etc/systemd/system/ledder-sidecar.service
+fi
 systemctl daemon-reload
 systemctl enable "$SERVICE"
 systemctl restart "$SERVICE"

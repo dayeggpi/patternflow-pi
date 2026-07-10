@@ -1,8 +1,30 @@
 # LED Matrix Controller
 
 Original project : https://github.com/engmung/PatternFlow
+Original 3D print enclosure : https://www.printables.com/model/850534-rgb-led-clock-case-64x32-matrix
+Fits a HUB75 64x32 3mm pitch. It is important to print the Screen on the lowest layer height possible (max 0.2 mm)
 
-A full-featured controller for a **64×32 RGB LED matrix** driven by a Raspberry Pi with the Adafruit RGB Matrix Bonnet. Modes: digital clock, Spotify now-playing, Conway's Game of Life, and scrolling text. Controlled via REST API and a built-in web interface.
+A full-featured controller for a **64×32 RGB LED matrix** driven by a Raspberry Pi with the Adafruit RGB Matrix Bonnet. Modes: digital clock, Spotify now-playing, Conway's Game of Life, scrolling text, Patternflow, pixel draw, Pomodoro timer, reminders, and image/GIF display. Controlled via REST API and a built-in web interface.
+
+---
+
+## Requirements
+
+- Raspberry PI (4B preferred, zero 2W ok with some lags)
+- 5V power supply
+- Adafruit RGB Matrix Bonnet for Raspberry Pi ([www.adafruit.com/product/3211](https://www.adafruit.com/product/3211))
+- Hourglass app (with Endpoint feature : see [github.com/dayeggpi/hourglass2](https://github.com/dayeggpi/hourglass2))
+- 3D printed enclosure (see attached files for Pi 4B support, print in lowest layer height possible max 0.2mm)
+
+---
+
+
+## Current Features
+
+- Modes: clock, Spotify, Game of Life, text, Patternflow, draw, Pomodoro, background reminders, and image/GIF display.
+- Built-in web UI for mode switching, brightness, mode settings, carousel, reminders, image upload/crop, and service controls.
+- REST API for mode/config updates, Spotify OAuth, Patternflow controls, Pomodoro timer events, draw updates, image upload/delete, and system actions.
+- Matrix runtime tuning through config for GPIO slowdown, PWM bits, refresh-rate limiting, and hardware pulsing.
 
 ---
 
@@ -68,14 +90,58 @@ main.py            ← render loop + controller
 ├── config.py      ← JSON config store
 ├── api.py         ← Flask REST API + web UI
 └── modes/
-    ├── base.py    ← BaseMode ABC
-    ├── clock.py   ← 7-segment digital clock
-    ├── spotify.py ← Now-playing with rotating art
+    ├── base.py       ← BaseMode ABC
+    ├── clock.py      ← 7-segment digital clock
+    ├── spotify.py    ← Now-playing with rotating art
     ├── gameoflife.py ← Conway's Game of Life
-    └── text.py    ← Scrolling/static text
+    ├── text.py       ← Scrolling/static text
+    ├── draw.py       ← Pixel canvas with optional scroll
+    ├── pomodoro.py   ← Gradient progress timer
+    ├── reminder.py   ← Background-triggered text takeover
+    ├── image.py      ← Static image and animated GIF display
+    └── patternflow/  ← Generative pattern engine
 ```
 
-The main loop runs at the matrix's VSync rate (~100 Hz). Each mode's `render(canvas)` is called every frame. Mode-specific state (scroll position, rotation angle, GoL grid) is maintained per-mode instance. The Flask API runs in a daemon thread.
+The main loop runs at the matrix's VSync rate (~100 Hz). Each mode's `render(canvas)` is called every frame. Mode-specific state (scroll position, rotation angle, GoL grid, animation frame) is maintained per-mode instance. The Flask API runs in a daemon thread.
+
+Reminder scheduling is handled by the controller in the background: when a reminder matches the local `HH:MM`, the controller temporarily switches to the internal `reminder` mode, displays it for the configured duration, then returns to the previous mode.
+
+`ImageMode` stores the uploaded media at `static/matrix_image.png` (static) or `static/matrix_image.gif` (animated). The GIF path takes priority when both exist. All frames are pre-loaded and resized to 64×32 on first read; frame advancement is driven by `time.time()` against each frame's original duration.
+
+---
+
+## Recent Changes
+
+### 2026-07-10
+
+- Added **Image / GIF** mode:
+  - Upload any static image (JPEG, PNG, WebP, …) or animated GIF via the web UI.
+  - Browser-side crop/zoom UI: drag to pan, slider to zoom (100–500 %), live preview at the 2:1 matrix ratio.
+  - Animated GIFs are previewed live in the crop canvas (real animation shown). Each frame is cropped and resized to 64×32 server-side; original frame durations are preserved.
+  - Current image shown as a pixelated preview in the web UI; remove button with confirmation deletes the file from the Pi and returns to clock mode.
+  - REST API: `GET /api/image`, `DELETE /api/image`, `POST /api/image/upload`.
+  - Uploaded media stored at `static/matrix_image.png` (static) or `static/matrix_image.gif` (animated GIF); GIF takes priority when both exist.
+  - `ImageMode` pre-loads all frames on first render, polls for file changes every second, and advances frames via wall-clock timing.
+
+### 2026-07-06
+
+- Added **Reminder** support:
+  - Background scheduler with a master enable toggle.
+  - Add/edit/delete reminders from the web UI.
+  - Each reminder has an hour/minute time, text, text color, gradient background, display duration, and per-reminder enable toggle.
+  - Reminder display uses the same glyph-style text as Spotify/Text status messages.
+  - Reminder mode is hidden from normal mode and carousel controls because it is a temporary background-triggered takeover mode.
+- Added **Pomodoro** mode:
+  - Gradient progress bar fills progressively across the configured timer duration.
+  - Configurable background, elapsed background, text color, gradient colors, end flash, tick pixel, and return-after-elapsed behavior.
+  - Fixed a timing bug where Pomodoro progress could loop/collapse every second by double-subtracting elapsed time.
+- Added **Draw** mode with browser pixel canvas, pen/eraser, width controls, optional scrolling, and text placement.
+- Added **Carousel** controls for selecting modes and per-mode durations.
+- Expanded **Patternflow** web controls with pattern picker, web knob/button controls, FPS overlay option, Donut fast render, and fast image push.
+- Expanded **Spotify** display settings with artist/track scroll speeds and configurable OAuth callback path.
+- Added service controls in the web UI/API: restart service, stop service, disable autostart, and shutdown.
+- Added matrix runtime options in config: `gpio_slowdown`, `pwm_bits`, `limit_refresh_rate_hz`, and `disable_hardware_pulsing`.
+- Added regression tests for Pomodoro timing and reminder return behavior.
 
 ---
 
@@ -135,15 +201,37 @@ Config is stored at `/opt/led-matrix/config.json` and updated live through the A
   "mode": "clock",
   "brightness": 50,
   "shutdown_gpio": 21,
+  "matrix": {
+    "gpio_slowdown": 2,
+    "pwm_bits": 7,
+    "limit_refresh_rate_hz": 0,
+    "disable_hardware_pulsing": false
+  },
+  "carousel": {
+    "enabled": false,
+    "modes": ["clock", "spotify", "gameoflife", "text", "patternflow", "draw", "pomodoro", "image"],
+    "durations": {
+      "clock": 30,
+      "spotify": 30,
+      "gameoflife": 30,
+      "text": 30,
+      "patternflow": 30,
+      "draw": 30,
+      "pomodoro": 30,
+      "image": 30
+    }
+  },
   "clock": {
     "color": [255, 0, 0],
     "show_seconds": true
   },
   "text": {
     "content": "Hello!",
+    "source": "manual",
+    "url": "",
+    "poll_interval": 60,
     "color": [255, 255, 255],
     "speed": 30,
-    "size": 1,
     "scroll": true
   },
   "gameoflife": {
@@ -154,17 +242,58 @@ Config is stored at `/opt/led-matrix/config.json` and updated live through the A
   "spotify": {
     "client_id": "your_id",
     "client_secret": "your_secret",
-    "redirect_uri": "http://YOUR_PI_IP:8080/callback"
+    "redirect_uri": "http://YOUR_PI_IP:8080/callback",
+    "callback_path": "/callback",
+    "artist_speed": 12,
+    "track_speed": 12
   },
   "patternflow": {
     "current_pattern": 0,
     "encoders_enabled": false,
     "invert_encoder": false,
+    "show_fps": false,
+    "donut_fast_render": true,
+    "fast_image_push": true,
     "encoders": [
       {"clk": -1, "dt": -1, "sw": -1},
       {"clk": -1, "dt": -1, "sw": -1},
       {"clk": -1, "dt": -1, "sw": -1},
       {"clk": -1, "dt": -1, "sw": -1}
+    ]
+  },
+  "draw": {
+    "width": 64,
+    "scroll": false,
+    "scroll_speed": 20,
+    "pixels": []
+  },
+  "pomodoro": {
+    "gradient_start": [30, 215, 96],
+    "gradient_end": [255, 210, 64],
+    "background_color": [0, 0, 0],
+    "elapsed_background": [25, 25, 25],
+    "text_color": [255, 255, 255],
+    "flash_red": true,
+    "flash_threshold_ms": 5000,
+    "tick_pixel_enabled": true,
+    "tick_pixel_color": [255, 255, 255],
+    "return_after_elapsed_enabled": false,
+    "return_after_elapsed_delay_s": 10,
+    "return_after_elapsed_mode": "clock"
+  },
+  "reminders": {
+    "enabled": false,
+    "items": [
+      {
+        "id": "standup",
+        "enabled": true,
+        "time": "09:00",
+        "text": "STAND UP",
+        "text_color": [255, 255, 255],
+        "gradient_start": [20, 30, 80],
+        "gradient_end": [180, 40, 80],
+        "display_time_s": 10
+      }
     ]
   }
 }
@@ -175,21 +304,25 @@ choosing GPIO pins that do not overlap the RGB matrix HAT/Bonnet signals;
 overlapping pins can make the display render as a few horizontal bands until
 the service is restarted.
 
----
-
 ## Web Interface
 
 Open `http://<pi-ip>:8080` in any browser.
 
-- **Mode** — click a button to switch modes instantly
-- **Brightness** — 1–100% slider
-- **Clock** — color picker, toggle seconds
-- **Text** — content, color, size (1–3), scroll speed, scroll toggle
-- **Game of Life** — color, speed, edge wrap
-- **Spotify** — credentials, authorize button
-- **System** — restart service, stop service, disable autostart, shutdown Pi
+Current UI sections:
 
----
+- **Mode** - switch foreground modes instantly.
+- **Brightness** - 1-100% slider.
+- **Clock** - color picker and seconds toggle.
+- **Text** - manual or URL content, color, scroll speed, and scroll toggle.
+- **Game of Life** - color, speed, and edge wrap.
+- **Spotify** - credentials, authorize button, callback path, and artist/track scroll speeds.
+- **Draw** - pixel canvas, pen/eraser, width controls, optional scrolling, and text placement.
+- **Pomodoro** - gradient, background, text, tick pixel, flash, and return-after-elapsed settings.
+- **Patternflow** - pattern selector, web knob/button controls, FPS overlay, Donut fast render, and fast image push.
+- **Image** - upload a static image or animated GIF, crop/zoom in the browser, see a live pixelated preview; remove button clears and returns to clock.
+- **Carousel tab** - enable carousel rotation and set per-mode durations.
+- **Reminders tab** - enable reminders and add/edit/delete timed reminder takeovers.
+- **System** - restart service, stop service, disable autostart, and shutdown Pi.
 
 ## REST API
 
@@ -202,8 +335,10 @@ Returns current mode, brightness, full config.
 ```json
 // POST body
 { "mode": "clock" }
-// modes: "clock", "spotify", "gameoflife", "text", "patternflow"
+// modes: "clock", "spotify", "gameoflife", "text", "patternflow", "draw", "pomodoro", "image"
 ```
+
+`reminder` is an internal temporary display mode. It is triggered by the reminders scheduler and should not normally be selected manually.
 
 ### POST /api/brightness
 ```json
@@ -215,17 +350,18 @@ Returns current mode, brightness, full config.
 // POST — switches to text mode and displays
 {
   "content": "Hello World",
+  "source": "manual",
+  "url": "",
+  "poll_interval": 60,
   "color": [255, 128, 0],
   "speed": 40,
-  "size": 1,
   "scroll": true
 }
 ```
-`size`: 1 = 8px, 2 = 16px, 3 = 24px  
 `speed`: pixels per second (scrolling)
 
 ### GET|POST /api/config/{section}
-`section` = `clock` | `text` | `gameoflife` | `spotify`
+`section` = `clock` | `text` | `gameoflife` | `spotify` | `patternflow` | `matrix` | `carousel` | `draw` | `pomodoro` | `reminders`
 
 GET returns current section config.  
 POST merges the body into that section's config.
@@ -239,6 +375,93 @@ curl -X POST http://pi-ip:8080/api/config/clock \
 
 ### GET /api/spotify/auth_url
 Returns the Spotify OAuth URL to open in a browser.
+
+### GET|POST /api/draw
+GET returns the draw config. POST saves a drawing and switches to draw mode.
+
+```json
+{
+  "width": 64,
+  "scroll": false,
+  "scroll_speed": 20,
+  "pixels": [
+    { "x": 0, "y": 0, "color": [255, 255, 255] }
+  ]
+}
+```
+
+### GET|POST /api/pomodoro
+GET returns Pomodoro display config. POST accepts timer events from an external timer source and switches to Pomodoro while the timer is active.
+
+```json
+{
+  "event": "start",
+  "state": "running",
+  "timeLeftMs": 1500000,
+  "totalTimeMs": 1500000
+}
+```
+
+Supported stop-like events/states include `stop`, `stopped`, `cancel`, `cancelled`, `reset`, `end`, and `idle`. Pause-like events/states include `pause` and `paused`.
+
+### Reminder config
+Reminders are managed through `GET|POST /api/config/reminders`.
+
+```json
+{
+  "enabled": true,
+  "items": [
+    {
+      "id": "water",
+      "enabled": true,
+      "time": "14:30",
+      "text": "DRINK WATER",
+      "text_color": [255, 255, 255],
+      "gradient_start": [20, 30, 80],
+      "gradient_end": [180, 40, 80],
+      "display_time_s": 10
+    }
+  ]
+}
+```
+
+Reminder times use the Raspberry Pi's local time in `HH:MM` 24-hour format. Each enabled reminder fires once per local calendar day for its configured time.
+
+### Patternflow API
+
+```text
+GET  /api/patternflow/patterns
+POST /api/patternflow/pattern
+POST /api/patternflow/knob
+POST /api/patternflow/button
+POST /api/patternflow/options
+```
+
+`/api/patternflow/pattern` accepts either `{ "index": 0 }` or `{ "name": "Pattern Name" }`. Knob/button endpoints are used by the web UI to drive Patternflow controls without physical encoders.
+
+### GET /api/image
+Returns `{ "has_image": bool, "is_gif": bool }`.
+
+### DELETE /api/image
+Removes the uploaded image/GIF from the Pi and switches back to clock mode.
+
+### POST /api/image/upload
+Upload a static image or animated GIF. The request must be `multipart/form-data`.
+
+**Static image** (JPEG, PNG, WebP, …) — send the file pre-cropped to 64×32 by the browser:
+```bash
+curl -X POST http://pi-ip:8080/api/image/upload \
+  -F "file=@cropped_64x32.png"
+```
+
+**Animated GIF** — send the original file with crop parameters (server crops each frame):
+```bash
+curl -X POST http://pi-ip:8080/api/image/upload \
+  -F "file=@animation.gif" \
+  -F "ox=10" -F "oy=5" -F "cropW=200" -F "cropH=100"
+```
+
+`ox`/`oy`: top-left of the crop rect in source-image pixels. `cropW`/`cropH`: size of the crop rect. Omit or set to `-1` to use the full frame. The server resizes each frame to 64×32 and saves the result as `static/matrix_image.gif`.
 
 ### POST /api/shutdown
 Triggers `sudo shutdown -h now` on the Pi.
@@ -258,9 +481,9 @@ Disables autostart after reboot without stopping the currently running service.
 ## Spotify Setup
 
 1. Go to [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard) and create a new app.
-2. Add `http://YOUR_PI_IP:8080/callback` as a **Redirect URI**.
+2. Add `http://YOUR_PI_IP:8080/callback` as a **Redirect URI**. If you want another path such as `/spotiup`, set `callback_path` to match.
 3. Copy the **Client ID** and **Client Secret**.
-4. In the web UI → **Spotify** section, enter your credentials and the redirect URI, then click **Save credentials**.
+4. In the web UI → **Spotify** section, enter your credentials, redirect URI, and callback path, then click **Save credentials**.
 5. Click **Authorize Spotify** — a Spotify login page opens. After approving, you'll be redirected back and the token is saved to `/tmp/.spotify_token_cache` on the Pi.
 6. Switch mode to **spotify** — the current track should appear.
 
@@ -396,7 +619,21 @@ Increase brightness via `/api/brightness` or the web UI. Also check `gpio_slowdo
 - Token cache at `/tmp/.spotify_token_cache` is lost on reboot — this is intentional (tmpfs). For persistence, change `cache_path` in `modes/spotify.py` to `/opt/led-matrix/.spotify_cache`
 
 **Flickering / timing issues**  
-Try `options.gpio_slowdown = 3` or `4` in `main.py → _init_matrix()`. Higher values slow GPIO to match slower Pi models.
+Matrix timing is configured in `config.json` under `matrix`. Lower values are
+faster; higher values are more tolerant of slow wiring/panels:
+
+```json
+"matrix": {
+  "gpio_slowdown": 2,
+  "pwm_bits": 7,
+  "limit_refresh_rate_hz": 0,
+  "disable_hardware_pulsing": false
+}
+```
+
+If the panel flickers or shows artifacts, try `gpio_slowdown` values `3` or
+`4`, or set `disable_hardware_pulsing` back to `true`. Restart the service
+after matrix config changes.
 
 ---
 
@@ -424,7 +661,7 @@ The **LED matrix refresh itself is hardware-driven** (DMA + GPIO). The Pi's CPU 
 
 **Recommendation**: The Zero 2W is worth the small price difference (~$15) for the quad-core CPU. But if you already own a Zero 1.3, it will work fine for clock/text/GoL. Only Spotify rotation will feel less smooth.
 
-**gpio_slowdown for Zero 1.3**: Set `opts.gpio_slowdown = 1` (the ARM11 is slower — ironically needs *less* slowdown).
+**gpio_slowdown for Zero 1.3**: Set `matrix.gpio_slowdown` to `1` (the ARM11 is slower — ironically needs *less* slowdown).
 
 ---
 
@@ -443,4 +680,4 @@ Use a **5V 4A minimum** supply. A quality **5V 5A** supply covers almost all rea
 
 ## License
 
-MIT
+GPL-3.0-or-later

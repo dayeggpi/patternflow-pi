@@ -37,19 +37,18 @@ from modes.spotify import SpotifyMode
 from modes.gameoflife import GameOfLifeMode
 from modes.text import TextMode
 from modes.patternflow import PatternflowMode
+from modes.draw import DrawMode
+from modes.pomodoro import PomodoroMode
+from modes.reminder import ReminderMode
+from modes.image import ImageMode
 
 
 # ── Simulation canvas (dev/non-Pi use) ──────────────────────────────────────
 
 class SimCanvas:
-    def SetPixel(self, x, y, r, g, b):
-        pass
-
-    def SetImage(self, image, offset_x=0, offset_y=0, unsafe=True):
-        pass
-
-    def Clear(self):
-        pass
+    def SetPixel(self, x, y, r, g, b): pass
+    def SetImage(self, image, offset_x=0, offset_y=0, unsafe=True): pass
+    def Clear(self): pass
 
 
 # ── Controller ───────────────────────────────────────────────────────────────
@@ -61,6 +60,10 @@ class MatrixController:
         'gameoflife': GameOfLifeMode,
         'text': TextMode,
         'patternflow': PatternflowMode,
+        'draw': DrawMode,
+        'pomodoro': PomodoroMode,
+        'reminder': ReminderMode,
+        'image': ImageMode,
     }
 
     def __init__(self):
@@ -71,8 +74,17 @@ class MatrixController:
         self.modes = {name: cls(self.config) for name, cls in self.MODES.items()}
         self.running = False
         self._mode_lock = threading.Lock()
+        self._carousel_thread = None
+        self._carousel_stop = threading.Event()
+        self._carousel_index = 0
+        self._carousel_manual_until = 0.0
+        self._reminder_last_fired = {}
+        self._screen_on = True
+        self._last_applied_brightness = None
         self._setup_gpio()
+        self._apply_auto_brightness()
         self.set_mode(self.config.get('mode', 'clock'))
+        self._start_carousel()
 
     def _init_matrix(self):
         if not MATRIX_AVAILABLE:
@@ -85,11 +97,20 @@ class MatrixController:
         opts.parallel = 1
         opts.hardware_mapping = 'adafruit-hat'
         opts.brightness = self.config.get('brightness', 50)
-        opts.gpio_slowdown = 4
-        opts.pwm_bits = 7
+        matrix_cfg = self.config.get_section('matrix')
+        opts.gpio_slowdown = int(matrix_cfg.get('gpio_slowdown', 2))
+        opts.pwm_bits = int(matrix_cfg.get('pwm_bits', 7))
         opts.drop_privileges = False
-        opts.disable_hardware_pulsing = True
-        opts.limit_refresh_rate_hz = 100
+        opts.disable_hardware_pulsing = bool(matrix_cfg.get('disable_hardware_pulsing', False))
+        opts.limit_refresh_rate_hz = int(matrix_cfg.get('limit_refresh_rate_hz', 0))
+        logger.info(
+            "Matrix options: gpio_slowdown=%s pwm_bits=%s limit_refresh_rate_hz=%s "
+            "disable_hardware_pulsing=%s",
+            opts.gpio_slowdown,
+            opts.pwm_bits,
+            opts.limit_refresh_rate_hz,
+            opts.disable_hardware_pulsing,
+        )
         return RGBMatrix(options=opts)
 
     def _setup_gpio(self):
@@ -120,10 +141,12 @@ class MatrixController:
 
     # ── Mode management ──────────────────────────────────────────────────────
 
-    def set_mode(self, name, **kwargs):
+    def set_mode(self, name, manual=True, **kwargs):
         if name not in self.modes:
             logger.error(f"Unknown mode '{name}'")
             return False
+        if manual:
+            self._carousel_manual_until = time.monotonic() + 1.0
         with self._mode_lock:
             if self.current_mode:
                 self.current_mode.stop()
@@ -142,11 +165,135 @@ class MatrixController:
     def get_mode_names(self):
         return list(self.modes.keys())
 
+    def _carousel_cfg(self):
+        cfg = self.config.get_section('carousel')
+        enabled = bool(cfg.get('enabled', False))
+        selected = [m for m in cfg.get('modes', []) if m in self.modes]
+        durations = cfg.get('durations', {})
+        return enabled, selected, durations
+
+    @staticmethod
+    def _reminder_id(reminder):
+        rid = str(reminder.get('id', '') or '').strip()
+        if rid:
+            return rid
+        return f"{reminder.get('time', '')}|{reminder.get('text', '')}"
+
+    def _check_reminders(self):
+        if self.get_mode() == 'reminder':
+            return
+
+        cfg = self.config.get_section('reminders')
+        if not bool(cfg.get('enabled', False)):
+            return
+
+        now = time.localtime()
+        current_time = f"{now.tm_hour:02d}:{now.tm_min:02d}"
+        today = f"{now.tm_year:04d}-{now.tm_mon:02d}-{now.tm_mday:02d}"
+
+        for reminder in cfg.get('items', []):
+            if not bool(reminder.get('enabled', True)):
+                continue
+            if str(reminder.get('time', '')).strip() != current_time:
+                continue
+
+            rid = self._reminder_id(reminder)
+            if self._reminder_last_fired.get(rid) == today:
+                continue
+
+            return_mode = self.get_mode()
+            mode = self.modes.get('reminder')
+            if not mode:
+                return
+            mode.show(reminder, return_mode)
+            self._reminder_last_fired[rid] = today
+            self.set_mode('reminder', manual=False)
+            break
+
+    @staticmethod
+    def _carousel_duration(mode_name, durations):
+        try:
+            value = durations.get(mode_name, 30)
+        except AttributeError:
+            value = 30
+        return max(2, min(3600, int(value or 30)))
+
+    def _start_carousel(self):
+        self._carousel_stop.clear()
+        self._carousel_thread = threading.Thread(
+            target=self._carousel_loop,
+            daemon=True,
+            name='carousel',
+        )
+        self._carousel_thread.start()
+
+    def _carousel_loop(self):
+        last_switch = time.monotonic()
+        while not self._carousel_stop.wait(0.5):
+            enabled, selected, durations = self._carousel_cfg()
+            if not enabled or len(selected) < 2:
+                last_switch = time.monotonic()
+                continue
+            now = time.monotonic()
+            if now < self._carousel_manual_until:
+                last_switch = now
+                continue
+            interval = self._carousel_duration(self.get_mode(), durations)
+            if now - last_switch < interval:
+                continue
+
+            current = self.get_mode()
+            if current in selected:
+                self._carousel_index = (selected.index(current) + 1) % len(selected)
+            else:
+                self._carousel_index %= len(selected)
+            self.set_mode(selected[self._carousel_index], manual=False)
+            last_switch = time.monotonic()
+
+    def set_screen(self, on: bool):
+        self._screen_on = bool(on)
+
+    def get_screen(self) -> bool:
+        return self._screen_on
+
+    def night_mode_active(self) -> bool:
+        cfg = self.config.get_section('night_mode')
+        if not cfg.get('enabled'):
+            return False
+        now = time.localtime()
+        current = now.tm_hour * 60 + now.tm_min
+        try:
+            sh, sm = map(int, str(cfg.get('start', '22:00')).split(':'))
+            eh, em = map(int, str(cfg.get('end', '05:00')).split(':'))
+        except Exception:
+            return False
+        start_min = sh * 60 + sm
+        end_min = eh * 60 + em
+        if start_min <= end_min:
+            return start_min <= current < end_min
+        return current >= start_min or current < end_min
+
+    def _apply_auto_brightness(self):
+        if not self.matrix:
+            return
+        if self.night_mode_active():
+            cfg = self.config.get_section('night_mode')
+            target = max(1, min(100, int(cfg.get('brightness', 20))))
+        else:
+            target = max(1, min(100, int(self.config.get('brightness', 50))))
+        if self._last_applied_brightness != target:
+            self.matrix.brightness = target
+            self._last_applied_brightness = target
+
+    def refresh_brightness(self):
+        self._last_applied_brightness = None
+        self._apply_auto_brightness()
+
     def set_brightness(self, value):
         value = max(1, min(100, int(value)))
         self.config.set('brightness', value)
-        if self.matrix:
-            self.matrix.brightness = value
+        self._last_applied_brightness = None
+        self._apply_auto_brightness()
 
     # ── Main render loop ─────────────────────────────────────────────────────
 
@@ -160,20 +307,75 @@ class MatrixController:
             canvas = SimCanvas()
 
         try:
+            perf_frames = 0
+            perf_render_s = 0.0
+            perf_swap_s = 0.0
+            perf_last_log = time.monotonic()
+            brightness_check_t = 0.0
             while self.running:
+                self._check_reminders()
+
+                now_t = time.monotonic()
+                if now_t - brightness_check_t >= 30.0:
+                    self._apply_auto_brightness()
+                    brightness_check_t = now_t
+
+                if not self._screen_on:
+                    canvas.Clear()
+                    if self.matrix:
+                        canvas = self.matrix.SwapOnVSync(canvas)
+                    else:
+                        time.sleep(0.033)
+                    continue
+
                 with self._mode_lock:
                     mode = self.current_mode
 
+                render_start = time.monotonic()
                 if mode:
                     try:
                         mode.render(canvas)
                     except Exception as e:
                         logger.error(f"Render error: {e}")
+                render_end = time.monotonic()
+
+                requested_mode = None
+                if mode and hasattr(mode, 'consume_requested_mode'):
+                    try:
+                        requested_mode = mode.consume_requested_mode()
+                    except Exception as e:
+                        logger.warning(f"Mode switch request error: {e}")
 
                 if self.matrix:
+                    swap_start = time.monotonic()
                     canvas = self.matrix.SwapOnVSync(canvas)
+                    swap_end = time.monotonic()
                 else:
                     time.sleep(0.033)
+                    swap_start = render_end
+                    swap_end = time.monotonic()
+
+                if requested_mode and requested_mode in self.modes:
+                    self.set_mode(requested_mode, manual=False)
+
+                perf_frames += 1
+                perf_render_s += render_end - render_start
+                perf_swap_s += swap_end - swap_start
+                now = time.monotonic()
+                if now - perf_last_log >= 5.0:
+                    total_s = max(0.001, now - perf_last_log)
+                    logger.info(
+                        "Perf: mode=%s fps=%.1f render_ms=%.1f swap_ms=%.1f frames=%d",
+                        self.current_mode_name,
+                        perf_frames / total_s,
+                        perf_render_s * 1000.0 / max(1, perf_frames),
+                        perf_swap_s * 1000.0 / max(1, perf_frames),
+                        perf_frames,
+                    )
+                    perf_frames = 0
+                    perf_render_s = 0.0
+                    perf_swap_s = 0.0
+                    perf_last_log = now
 
         except KeyboardInterrupt:
             pass
@@ -182,6 +384,7 @@ class MatrixController:
 
     def _cleanup(self):
         self.running = False
+        self._carousel_stop.set()
         with self._mode_lock:
             if self.current_mode:
                 self.current_mode.stop()

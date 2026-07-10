@@ -9,8 +9,31 @@ DEFAULT_CONFIG = {
     "mode": "clock",
     "brightness": 50,
     "shutdown_gpio": 21,
+    "matrix": {
+        "gpio_slowdown": 2,
+        "pwm_bits": 7,
+        "limit_refresh_rate_hz": 0,
+        "disable_hardware_pulsing": False
+    },
+    "carousel": {
+        "enabled": False,
+        "modes": ["clock", "spotify", "gameoflife", "text", "patternflow", "draw", "pomodoro"],
+        "interval": 30,
+        "durations": {
+            "clock": 30,
+            "spotify": 30,
+            "gameoflife": 30,
+            "text": 30,
+            "patternflow": 30,
+            "draw": 30,
+            "pomodoro": 30
+        }
+    },
     "text": {
         "content": "Hello World!",
+        "source": "manual",
+        "url": "",
+        "poll_interval": 60,
         "color": [255, 255, 255],
         "speed": 30,
         "size": 1,
@@ -23,7 +46,10 @@ DEFAULT_CONFIG = {
     "spotify": {
         "client_id": "",
         "client_secret": "",
-        "redirect_uri": "http://YOUR_PI_IP:8080/callback"
+        "redirect_uri": "",
+        "callback_path": "/callback",
+        "artist_speed": 12,
+        "track_speed": 12
     },
     "gameoflife": {
         "speed": 10,
@@ -35,7 +61,8 @@ DEFAULT_CONFIG = {
         "encoders_enabled": False,
         "invert_encoder": False,
         "show_fps": False,
-        "donut_fast_render": False,
+        "donut_fast_render": True,
+        "fast_image_push": True,
         "encoders": [
             {"clk": -1, "dt": -1, "sw": -1},
             {"clk": -1, "dt": -1, "sw": -1},
@@ -43,6 +70,36 @@ DEFAULT_CONFIG = {
             {"clk": -1, "dt": -1, "sw": -1}
         ],
         "extra_buttons": [-1, -1]
+    },
+    "draw": {
+        "width": 64,
+        "scroll": False,
+        "scroll_speed": 20,
+        "pixels": []
+    },
+    "pomodoro": {
+        "gradient_start": [30, 215, 96],
+        "gradient_end": [255, 210, 64],
+        "background_color": [0, 0, 0],
+        "elapsed_background": [25, 25, 25],
+        "text_color": [255, 255, 255],
+        "flash_red": True,
+        "flash_threshold_ms": 5000,
+        "tick_pixel_enabled": True,
+        "tick_pixel_color": [255, 255, 255],
+        "return_after_elapsed_enabled": False,
+        "return_after_elapsed_delay_s": 10,
+        "return_after_elapsed_mode": "clock"
+    },
+    "reminders": {
+        "enabled": False,
+        "items": []
+    },
+    "night_mode": {
+        "enabled": False,
+        "brightness": 20,
+        "start": "22:00",
+        "end": "05:00"
     }
 }
 
@@ -62,8 +119,14 @@ class Config:
                 with open(CONFIG_FILE, 'r') as f:
                     saved = json.load(f)
                     self._deep_update(self._data, saved)
+                    self._migrate_removed_modes()
             except Exception as e:
                 print(f"Config load error: {e}")
+
+    def _migrate_removed_modes(self):
+        self._data.pop("ledder", None)
+        if self._data.get("mode") == "ledder":
+            self._data["mode"] = "clock"
 
     def _deep_update(self, base, update):
         for key, value in update.items():
