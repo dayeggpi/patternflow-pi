@@ -1,7 +1,9 @@
 # LED Matrix Controller
 
 Original project : https://github.com/engmung/PatternFlow
+
 Original 3D print enclosure : https://www.printables.com/model/850534-rgb-led-clock-case-64x32-matrix
+
 Fits a HUB75 64x32 3mm pitch. It is important to print the Screen on the lowest layer height possible (max 0.2 mm)
 
 A full-featured controller for a **64×32 RGB LED matrix** driven by a Raspberry Pi with the Adafruit RGB Matrix Bonnet. Modes: digital clock, Spotify now-playing, Conway's Game of Life, scrolling text, Patternflow, pixel draw, Pomodoro timer, reminders, and image/GIF display. Controlled via REST API and a built-in web interface.
