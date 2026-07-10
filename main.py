@@ -41,6 +41,7 @@ from modes.draw import DrawMode
 from modes.pomodoro import PomodoroMode
 from modes.reminder import ReminderMode
 from modes.image import ImageMode
+from modes.library import LibraryMode
 
 
 # ── Simulation canvas (dev/non-Pi use) ──────────────────────────────────────
@@ -64,6 +65,7 @@ class MatrixController:
         'pomodoro': PomodoroMode,
         'reminder': ReminderMode,
         'image': ImageMode,
+        'library': LibraryMode,
     }
 
     def __init__(self):

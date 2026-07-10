@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>LED Matrix Control</title>
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-<link rel="stylesheet" href="/static/style.css?v=20260709-gif">
+<link rel="stylesheet" href="/static/style.css?v=20260710-palettes">
 </head>
 <body>
 <div class="container">
@@ -27,6 +27,7 @@
     <button class="tab-btn active" id="tab-btn-main" onclick="showTab('main')">Controls</button>
     <button class="tab-btn" id="tab-btn-carousel" onclick="showTab('carousel')">Carousel</button>
     <button class="tab-btn" id="tab-btn-reminders" onclick="showTab('reminders')">Reminders</button>
+    <button class="tab-btn" id="tab-btn-library" onclick="showTab('library')">Library</button>
   </nav>
 
   <div class="tab-panel active" id="tab-main">
@@ -193,6 +194,12 @@
       <canvas id="draw-canvas" width="640" height="320"></canvas>
     </div>
     <button onclick="saveDraw()">Save &amp; Display</button>
+    <div class="img-divider" style="margin-top:12px"></div>
+    <p class="hint">Save current drawing to library:</p>
+    <div class="lib-add-row">
+      <input type="text" id="lib-draw-name" placeholder="Name (optional)">
+      <button onclick="addDrawToLibrary()">Save to Library</button>
+    </div>
   </section>
 
   <!-- Pomodoro -->
@@ -252,6 +259,13 @@
     <div class="pf-knob-grid" id="pf-knob-controls"></div>
   </section>
 
+  <!-- Library -->
+  <section class="card" id="panel-library">
+    <h2>Library</h2>
+    <p class="hint">Cycling through library items.</p>
+    <button onclick="showTab('library')">Manage Library</button>
+  </section>
+
   <!-- Image -->
   <section class="card" id="panel-image">
     <h2>Image</h2>
@@ -260,6 +274,12 @@
       <img id="img-current-preview" src="" alt="Current matrix image">
       <div class="row gap" style="margin-top:8px">
         <button class="btn-danger" onclick="clearImage()">Remove Image</button>
+      </div>
+      <div class="img-divider"></div>
+      <p class="hint">Save to library:</p>
+      <div class="lib-add-row">
+        <input type="text" id="lib-img-name" placeholder="Name (optional)">
+        <button onclick="addImageToLibrary()">Save to Library</button>
       </div>
       <div class="img-divider"></div>
     </div>
@@ -284,6 +304,11 @@
   <section class="card danger">
     <h2>System</h2>
     <div class="row gap">
+      <button onclick="exportSettings()">Export settings</button>
+      <button onclick="document.getElementById('settings-import-file').click()">Import settings</button>
+      <input type="file" id="settings-import-file" accept=".json,application/json" style="display:none" onchange="importSettings(event)">
+    </div>
+    <div class="row gap">
       <button class="btn-warn" onclick="restartService()">Restart service</button>
       <button class="btn-warn" onclick="stopService()">Stop service</button>
       <button class="btn-warn" onclick="disableAutostart()">Disable autostart</button>
@@ -305,6 +330,20 @@
 
   <div class="tab-panel" id="tab-reminders">
     <section class="card">
+      <h2>Color Palettes</h2>
+      <p class="hint">Load a palette into any reminder to set its colors instantly.</p>
+      <div class="palette-list" id="palette-list"></div>
+      <div class="palette-new-form">
+        <input type="text" id="pal-new-name" placeholder="New palette name">
+        <div class="palette-new-colors">
+          <label title="Text color">T<input type="color" id="pal-new-text" value="#ffffff"></label>
+          <label title="Gradient start">A<input type="color" id="pal-new-start" value="#141e50"></label>
+          <label title="Gradient end">B<input type="color" id="pal-new-end" value="#b42850"></label>
+        </div>
+        <button onclick="createPalette()">Add</button>
+      </div>
+    </section>
+    <section class="card">
       <h2>Reminders</h2>
       <label class="row">
         <input type="checkbox" id="reminders-enabled"> Enable reminders
@@ -314,9 +353,26 @@
       <button onclick="saveReminders()">Apply</button>
     </section>
   </div>
+
+  <div class="tab-panel" id="tab-library">
+    <section class="card">
+      <h2>Library</h2>
+      <label class="row">
+        <input type="checkbox" id="lib-rotation"> Auto-rotate through items
+      </label>
+      <label>Default duration (seconds)
+        <input type="number" id="lib-interval" min="1" max="3600" value="10">
+      </label>
+      <div class="lib-list" id="lib-list"></div>
+      <div class="row gap">
+        <button onclick="saveLibraryConfig()">Apply</button>
+        <button onclick="setMode('library')">Display Library</button>
+      </div>
+    </section>
+  </div>
 </div>
 
 <div id="toast"></div>
-<script src="/static/app.js?v=20260709-gif"></script>
+<script src="/static/app.js?v=20260710-palettes"></script>
 </body>
 </html>

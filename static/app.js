@@ -10,6 +10,7 @@ let drawCanvasWidth = 64;
 const DRAW_H = 32;
 let DRAW_SCALE = 8;
 let reminders = [];
+let palettes = [];
 
 function toast(msg, ok = true) {
   const el = document.getElementById('toast');
@@ -171,6 +172,13 @@ async function init() {
     document.getElementById('pom-return-mode').value = cfg.pomodoro.return_after_elapsed_mode || 'clock';
   }
 
+  // Library
+  const lib = cfg.library || {};
+  document.getElementById('lib-rotation').checked = lib.rotation_enabled !== false;
+  document.getElementById('lib-interval').value = lib.interval || 10;
+  _libraryItems = lib.items || [];
+  renderLibraryList();
+
   // Patternflow
   try {
     const pf = await api('/api/patternflow/patterns');
@@ -197,7 +205,7 @@ async function setMode(name) {
 }
 
 function showPanelForMode(mode) {
-  ['clock', 'text', 'gameoflife', 'spotify', 'patternflow', 'draw', 'pomodoro', 'reminder', 'image'].forEach(m => {
+  ['clock', 'text', 'gameoflife', 'spotify', 'patternflow', 'draw', 'pomodoro', 'reminder', 'image', 'library'].forEach(m => {
     const el = document.getElementById(`panel-${m}`);
     if (el) el.style.display = (m === mode) ? '' : 'none';
   });
@@ -274,8 +282,109 @@ function defaultReminder() {
   };
 }
 
+// ── Reminder palettes ─────────────────────────────────────────────────────────
+
+function renderPaletteList() {
+  const list = document.getElementById('palette-list');
+  if (!list) return;
+  list.innerHTML = '';
+  if (!palettes.length) {
+    const p = document.createElement('p');
+    p.className = 'hint';
+    p.textContent = 'No palettes yet.';
+    list.appendChild(p);
+    return;
+  }
+  palettes.forEach(pal => {
+    const row = document.createElement('div');
+    row.className = 'palette-row';
+    row.dataset.id = pal.id;
+    row.innerHTML = [
+      '<input type="text" class="pal-name-input" placeholder="Name">',
+      '<div class="pal-colors">',
+      '  <label title="Text color"><span>T</span><input type="color" class="pal-text-color"></label>',
+      '  <label title="Gradient start"><span>A</span><input type="color" class="pal-start-color"></label>',
+      '  <label title="Gradient end"><span>B</span><input type="color" class="pal-end-color"></label>',
+      '</div>',
+      '<button class="pal-action-btn pal-save-btn">Save</button>',
+      '<button class="pal-action-btn btn-danger pal-del-btn">Delete</button>',
+    ].join('');
+    row.querySelector('.pal-name-input').value = pal.name || '';
+    row.querySelector('.pal-text-color').value = rgbToHex(pal.text_color || [255, 255, 255]);
+    row.querySelector('.pal-start-color').value = rgbToHex(pal.gradient_start || [20, 30, 80]);
+    row.querySelector('.pal-end-color').value = rgbToHex(pal.gradient_end || [180, 40, 80]);
+    row.querySelector('.pal-save-btn').onclick = () => savePalette(pal.id, row);
+    row.querySelector('.pal-del-btn').onclick = () => deletePalette(pal.id);
+    list.appendChild(row);
+  });
+}
+
+function populatePaletteSelects() {
+  document.querySelectorAll('.rem-palette-sel').forEach(sel => {
+    const cur = sel.value;
+    while (sel.options.length > 1) sel.remove(1);
+    palettes.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = p.name;
+      sel.appendChild(opt);
+    });
+    sel.value = palettes.find(p => p.id === cur) ? cur : '';
+  });
+}
+
+async function createPalette() {
+  const name = document.getElementById('pal-new-name').value.trim() || 'Palette';
+  const payload = {
+    name,
+    text_color: hexToRgb(document.getElementById('pal-new-text').value),
+    gradient_start: hexToRgb(document.getElementById('pal-new-start').value),
+    gradient_end: hexToRgb(document.getElementById('pal-new-end').value),
+  };
+  const data = await api('/api/reminders/palettes', 'POST', payload);
+  if (data.error) { toast(data.error, false); return; }
+  palettes = (data.config || {}).palettes || [];
+  document.getElementById('pal-new-name').value = '';
+  renderPaletteList();
+  populatePaletteSelects();
+  toast(`Palette "${name}" added`);
+}
+
+async function savePalette(id, row) {
+  const payload = {
+    id,
+    name: row.querySelector('.pal-name-input').value.trim() || 'Palette',
+    text_color: hexToRgb(row.querySelector('.pal-text-color').value),
+    gradient_start: hexToRgb(row.querySelector('.pal-start-color').value),
+    gradient_end: hexToRgb(row.querySelector('.pal-end-color').value),
+  };
+  const data = await api('/api/reminders/palettes', 'POST', payload);
+  if (data.error) { toast(data.error, false); return; }
+  palettes = (data.config || {}).palettes || [];
+  renderPaletteList();
+  populatePaletteSelects();
+  toast('Palette saved');
+}
+
+async function deletePalette(id) {
+  if (!confirm('Delete this palette?')) return;
+  const data = await fetch(`/api/reminders/palettes/${id}`, { method: 'DELETE' }).then(r => r.json());
+  if (data.error) { toast(data.error, false); return; }
+  palettes = (data.config || {}).palettes || [];
+  renderPaletteList();
+  populatePaletteSelects();
+  toast('Palette deleted');
+}
+
 function loadReminders(cfg) {
   document.getElementById('reminders-enabled').checked = !!cfg.enabled;
+  palettes = (cfg.palettes || []).map(p => ({
+    id: p.id || uid(),
+    name: p.name || 'Palette',
+    text_color: p.text_color || [255, 255, 255],
+    gradient_start: p.gradient_start || [20, 30, 80],
+    gradient_end: p.gradient_end || [180, 40, 80],
+  }));
   reminders = (cfg.items || []).map(item => ({
     id: item.id || uid(),
     enabled: item.enabled !== false,
@@ -286,6 +395,7 @@ function loadReminders(cfg) {
     gradient_end: item.gradient_end || [180, 40, 80],
     display_time_s: item.display_time_s || 10,
   }));
+  renderPaletteList();
   renderReminders();
 }
 
@@ -321,6 +431,46 @@ function renderReminders() {
     row.querySelector('.rem-grad-end').value = rgbToHex(reminder.gradient_end || [180, 40, 80]);
     row.querySelector('.rem-duration').value = reminder.display_time_s || 10;
     row.querySelector('.rem-delete').onclick = () => deleteReminder(index);
+
+    // Palette bar
+    const palBar = document.createElement('div');
+    palBar.className = 'rem-palette-bar';
+    const palLabel = document.createElement('span');
+    palLabel.className = 'hint';
+    palLabel.style.margin = '0';
+    palLabel.textContent = 'Palette';
+    const palSel = document.createElement('select');
+    palSel.className = 'rem-palette-sel';
+    palSel.innerHTML = '<option value="">— load —</option>';
+    palettes.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = p.name;
+      palSel.appendChild(opt);
+    });
+    palSel.addEventListener('change', () => {
+      if (!palSel.value) return;
+      const pal = palettes.find(p => p.id === palSel.value);
+      if (pal) {
+        row.querySelector('.rem-text-color').value = rgbToHex(pal.text_color || [255, 255, 255]);
+        row.querySelector('.rem-grad-start').value = rgbToHex(pal.gradient_start || [20, 30, 80]);
+        row.querySelector('.rem-grad-end').value = rgbToHex(pal.gradient_end || [180, 40, 80]);
+      }
+      palSel.value = '';
+    });
+    const clearBtn = document.createElement('button');
+    clearBtn.className = 'rem-clear-btn';
+    clearBtn.type = 'button';
+    clearBtn.textContent = 'Clear';
+    clearBtn.onclick = () => {
+      row.querySelector('.rem-text-color').value = '#ffffff';
+      row.querySelector('.rem-grad-start').value = '#141e50';
+      row.querySelector('.rem-grad-end').value = '#b42850';
+    };
+    palBar.appendChild(palLabel);
+    palBar.appendChild(palSel);
+    palBar.appendChild(clearBtn);
+    row.appendChild(palBar);
     list.appendChild(row);
   });
 }
@@ -356,6 +506,7 @@ async function saveReminders() {
   const payload = {
     enabled: document.getElementById('reminders-enabled').checked,
     items: reminders,
+    palettes,
   };
   const data = await api('/api/config/reminders', 'POST', payload);
   if (data.error) { toast(data.error, false); return; }
@@ -1042,6 +1193,119 @@ async function uploadImage() {
   });
   document.getElementById('current-mode').textContent = 'image';
   toast('Image uploaded!');
+}
+
+// ── Library ───────────────────────────────────────────────────────────────────
+
+let _libraryItems = [];
+
+function renderLibraryList() {
+  const list = document.getElementById('lib-list');
+  if (!list) return;
+  list.innerHTML = '';
+  if (!_libraryItems.length) {
+    const p = document.createElement('p');
+    p.className = 'hint';
+    p.textContent = 'No items yet. Add images or drawings using the "Save to Library" buttons.';
+    list.appendChild(p);
+    return;
+  }
+  _libraryItems.forEach(item => {
+    const row = document.createElement('div');
+    row.className = 'lib-item-row';
+    row.dataset.id = item.id;
+    row.innerHTML = [
+      '<img class="lib-thumb" alt="">',
+      '<div class="lib-item-meta">',
+      '  <input type="text" class="lib-name-input" placeholder="Name">',
+      '  <div class="lib-duration-row">Duration <input type="number" class="lib-duration-input" min="1" max="3600"> s</div>',
+      '  <span class="lib-item-source"></span>',
+      '</div>',
+      '<div class="lib-item-actions">',
+      '  <button class="lib-btn-display">Display</button>',
+      '  <button class="btn-danger lib-btn-remove">Remove</button>',
+      '</div>',
+    ].join('');
+    row.querySelector('.lib-thumb').src = `/static/library/${item.filename}`;
+    row.querySelector('.lib-name-input').value = item.name || '';
+    row.querySelector('.lib-duration-input').value = item.duration || 10;
+    row.querySelector('.lib-item-source').textContent = item.source || '';
+    row.querySelector('.lib-btn-display').onclick = () => setMode('library');
+    row.querySelector('.lib-btn-remove').onclick = () => deleteLibraryItem(item.id);
+    list.appendChild(row);
+  });
+}
+
+async function saveLibraryConfig() {
+  const rows = document.querySelectorAll('#lib-list .lib-item-row');
+  const itemUpdates = Array.from(rows).map(row => ({
+    id: row.dataset.id,
+    name: row.querySelector('.lib-name-input').value.trim() || 'Item',
+    duration: Math.max(1, parseInt(row.querySelector('.lib-duration-input').value) || 10),
+  }));
+  const payload = {
+    rotation_enabled: document.getElementById('lib-rotation').checked,
+    interval: Math.max(1, parseInt(document.getElementById('lib-interval').value) || 10),
+    items: itemUpdates,
+  };
+  const data = await api('/api/library/config', 'POST', payload);
+  if (data.error) { toast(data.error, false); return; }
+  _libraryItems = (data.config || {}).items || [];
+  renderLibraryList();
+  toast('Library settings saved');
+}
+
+async function deleteLibraryItem(id) {
+  if (!confirm('Remove this item from the library?')) return;
+  const data = await fetch(`/api/library/${id}`, { method: 'DELETE' }).then(r => r.json());
+  if (data.error) { toast(data.error, false); return; }
+  _libraryItems = (data.config || {}).items || [];
+  renderLibraryList();
+  toast('Item removed');
+}
+
+async function addImageToLibrary() {
+  const name = document.getElementById('lib-img-name').value.trim() || 'Image';
+  const data = await api('/api/library/add/image', 'POST', { name });
+  if (data.error) { toast(data.error, false); return; }
+  document.getElementById('lib-img-name').value = '';
+  _libraryItems = (data.config || {}).items || [];
+  renderLibraryList();
+  toast(`"${data.item?.name || name}" saved to library`);
+}
+
+async function addDrawToLibrary() {
+  const name = document.getElementById('lib-draw-name').value.trim() || 'Drawing';
+  const data = await api('/api/library/add/draw', 'POST', { name });
+  if (data.error) { toast(data.error, false); return; }
+  document.getElementById('lib-draw-name').value = '';
+  _libraryItems = (data.config || {}).items || [];
+  renderLibraryList();
+  toast(`"${data.item?.name || name}" saved to library`);
+}
+
+// ── Settings export / import ──────────────────────────────────────────────────
+
+function exportSettings() {
+  window.location.href = '/api/config/export';
+}
+
+async function importSettings(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  let parsed;
+  try {
+    parsed = JSON.parse(await file.text());
+  } catch {
+    toast('Invalid JSON file', false);
+    e.target.value = '';
+    return;
+  }
+  const data = await api('/api/config/import', 'POST', parsed);
+  e.target.value = '';
+  if (data.error) { toast(data.error, false); return; }
+  toast('Settings imported — reloading…');
+  setTimeout(() => location.reload(), 1200);
 }
 
 async function clearImage() {

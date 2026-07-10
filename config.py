@@ -17,7 +17,7 @@ DEFAULT_CONFIG = {
     },
     "carousel": {
         "enabled": False,
-        "modes": ["clock", "spotify", "gameoflife", "text", "patternflow", "draw", "pomodoro"],
+        "modes": ["clock", "spotify", "gameoflife", "text", "patternflow", "draw", "pomodoro", "library"],
         "interval": 30,
         "durations": {
             "clock": 30,
@@ -26,7 +26,8 @@ DEFAULT_CONFIG = {
             "text": 30,
             "patternflow": 30,
             "draw": 30,
-            "pomodoro": 30
+            "pomodoro": 30,
+            "library": 30
         }
     },
     "text": {
@@ -93,6 +94,17 @@ DEFAULT_CONFIG = {
     },
     "reminders": {
         "enabled": False,
+        "palettes": [
+            {"id": "pal-classic", "name": "Classic", "text_color": [255, 255, 255], "gradient_start": [20, 30, 80], "gradient_end": [180, 40, 80]},
+            {"id": "pal-ocean",   "name": "Ocean",   "text_color": [220, 240, 255], "gradient_start": [10, 40, 100], "gradient_end": [0, 80, 160]},
+            {"id": "pal-sunset",  "name": "Sunset",  "text_color": [255, 230, 180], "gradient_start": [160, 50, 0], "gradient_end": [120, 0, 40]},
+            {"id": "pal-forest",  "name": "Forest",  "text_color": [200, 255, 200], "gradient_start": [10, 60, 20], "gradient_end": [0, 100, 40]},
+        ],
+        "items": []
+    },
+    "library": {
+        "rotation_enabled": True,
+        "interval": 10,
         "items": []
     },
     "night_mode": {
@@ -165,3 +177,8 @@ class Config:
     def get_all(self):
         with self._lock:
             return self._deep_copy(self._data)
+
+    def import_all(self, data):
+        with self._lock:
+            self._deep_update(self._data, data)
+        self.save()

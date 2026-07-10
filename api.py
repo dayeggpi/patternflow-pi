@@ -6,7 +6,9 @@ All endpoints return JSON. Web UI served at /.
 import io
 import os
 import threading
-from flask import Flask, abort, jsonify, request, render_template
+import json as _json
+import shutil
+from flask import Flask, Response, abort, jsonify, request, render_template
 from PIL import Image as _PILImage
 
 try:
@@ -19,6 +21,18 @@ except ImportError:
 _IMAGE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
 IMAGE_PNG = os.path.join(_IMAGE_DIR, 'matrix_image.png')
 IMAGE_GIF = os.path.join(_IMAGE_DIR, 'matrix_image.gif')
+_LIBRARY_DIR = os.path.join(_IMAGE_DIR, 'library')
+
+
+def _lib_id():
+    return os.urandom(8).hex()
+
+
+def _validated_rgb(value, default):
+    try:
+        return [max(0, min(255, int(v))) for v in value[:3]]
+    except Exception:
+        return list(default)
 
 SPOTIFY_CACHE_PATH = os.environ.get(
     'SPOTIFY_CACHE_PATH',
@@ -431,6 +445,211 @@ def create_app(get_controller_fn):
             return jsonify(error='button must be 0-5'), 400
         pf.web_button(button)
         return jsonify(status='ok')
+
+    # ── Reminder palettes ─────────────────────────────────────────────────────
+
+    @app.route('/api/reminders/palettes', methods=['POST'])
+    def reminders_palette_save():
+        c = ctrl()
+        if not c:
+            return jsonify(error='controller not ready'), 503
+        data = request.get_json(force=True, silent=True) or {}
+        name = str(data.get('name', '')).strip() or 'Palette'
+        text_color    = _validated_rgb(data.get('text_color'),    [255, 255, 255])
+        gradient_start = _validated_rgb(data.get('gradient_start'), [20, 30, 80])
+        gradient_end   = _validated_rgb(data.get('gradient_end'),   [180, 40, 80])
+
+        rem_cfg = c.config.get_section('reminders')
+        palettes = rem_cfg.get('palettes', [])
+
+        pal_id = str(data.get('id', '')).strip()
+        if pal_id:
+            target = next((p for p in palettes if p.get('id') == pal_id), None)
+            if not target:
+                return jsonify(error='palette not found'), 404
+            target.update({'name': name, 'text_color': text_color,
+                           'gradient_start': gradient_start, 'gradient_end': gradient_end})
+        else:
+            palettes.append({'id': _lib_id(), 'name': name, 'text_color': text_color,
+                             'gradient_start': gradient_start, 'gradient_end': gradient_end})
+
+        c.config.set_section('reminders', {'palettes': palettes})
+        return jsonify(status='ok', config=c.config.get_section('reminders'))
+
+    @app.route('/api/reminders/palettes/<pal_id>', methods=['DELETE'])
+    def reminders_palette_delete(pal_id):
+        c = ctrl()
+        if not c:
+            return jsonify(error='controller not ready'), 503
+        rem_cfg = c.config.get_section('reminders')
+        palettes = rem_cfg.get('palettes', [])
+        if not any(p.get('id') == pal_id for p in palettes):
+            return jsonify(error='palette not found'), 404
+        c.config.set_section('reminders', {'palettes': [p for p in palettes if p.get('id') != pal_id]})
+        return jsonify(status='ok', config=c.config.get_section('reminders'))
+
+    # ── Library ───────────────────────────────────────────────────────────────
+
+    @app.route('/api/library', methods=['GET'])
+    def library_get():
+        c = ctrl()
+        if not c:
+            return jsonify(error='controller not ready'), 503
+        return jsonify(c.config.get_section('library'))
+
+    @app.route('/api/library/add/image', methods=['POST'])
+    def library_add_image():
+        c = ctrl()
+        if not c:
+            return jsonify(error='controller not ready'), 503
+        data = request.get_json(force=True, silent=True) or {}
+        name = str(data.get('name', '')).strip() or 'Image'
+
+        src = IMAGE_GIF if os.path.exists(IMAGE_GIF) else (IMAGE_PNG if os.path.exists(IMAGE_PNG) else None)
+        if src is None:
+            return jsonify(error='no image to add — upload an image first'), 404
+
+        ext = 'gif' if src == IMAGE_GIF else 'png'
+        os.makedirs(_LIBRARY_DIR, exist_ok=True)
+        item_id = _lib_id()
+        filename = f'{item_id}.{ext}'
+        shutil.copy2(src, os.path.join(_LIBRARY_DIR, filename))
+
+        item = {
+            'id': item_id, 'name': name, 'filename': filename,
+            'width': 64, 'scroll': False, 'scroll_speed': 20,
+            'duration': 10, 'source': 'image',
+        }
+        lib_cfg = c.config.get_section('library')
+        lib_cfg.setdefault('items', []).append(item)
+        c.config.set_section('library', {'items': lib_cfg['items']})
+        return jsonify(status='ok', item=item, config=c.config.get_section('library'))
+
+    @app.route('/api/library/add/draw', methods=['POST'])
+    def library_add_draw():
+        c = ctrl()
+        if not c:
+            return jsonify(error='controller not ready'), 503
+        data = request.get_json(force=True, silent=True) or {}
+        name = str(data.get('name', '')).strip() or 'Drawing'
+
+        draw_cfg = c.config.get_section('draw')
+        W_D, H_D = 64, 32
+        width = max(W_D, min(512, int(draw_cfg.get('width', W_D) or W_D)))
+        pixels = draw_cfg.get('pixels') or []
+        scroll = bool(draw_cfg.get('scroll', False)) and width > W_D
+        scroll_speed = int(draw_cfg.get('scroll_speed', 20) or 20)
+
+        from PIL import Image as _Img
+        img = _Img.new('RGB', (width, H_D), (0, 0, 0))
+        px = img.load()
+        for p in pixels:
+            try:
+                x, y = int(p.get('x', -1)), int(p.get('y', -1))
+                color = p.get('color', [0, 0, 0])
+                if 0 <= x < width and 0 <= y < H_D:
+                    px[x, y] = tuple(max(0, min(255, int(v))) for v in color[:3])
+            except Exception:
+                continue
+
+        os.makedirs(_LIBRARY_DIR, exist_ok=True)
+        item_id = _lib_id()
+        filename = f'{item_id}.png'
+        img.save(os.path.join(_LIBRARY_DIR, filename), 'PNG')
+
+        item = {
+            'id': item_id, 'name': name, 'filename': filename,
+            'width': width, 'scroll': scroll, 'scroll_speed': scroll_speed,
+            'duration': 10, 'source': 'draw',
+        }
+        lib_cfg = c.config.get_section('library')
+        lib_cfg.setdefault('items', []).append(item)
+        c.config.set_section('library', {'items': lib_cfg['items']})
+        return jsonify(status='ok', item=item, config=c.config.get_section('library'))
+
+    @app.route('/api/library/<item_id>', methods=['DELETE'])
+    def library_delete(item_id):
+        c = ctrl()
+        if not c:
+            return jsonify(error='controller not ready'), 503
+        lib_cfg = c.config.get_section('library')
+        items = lib_cfg.get('items', [])
+        target = next((it for it in items if it.get('id') == item_id), None)
+        if not target:
+            return jsonify(error='item not found'), 404
+        filename = target.get('filename', '')
+        if filename:
+            path = os.path.join(_LIBRARY_DIR, filename)
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+            except Exception:
+                pass
+        c.config.set_section('library', {'items': [it for it in items if it.get('id') != item_id]})
+        return jsonify(status='ok', config=c.config.get_section('library'))
+
+    @app.route('/api/library/config', methods=['POST'])
+    def library_config():
+        c = ctrl()
+        if not c:
+            return jsonify(error='controller not ready'), 503
+        data = request.get_json(force=True, silent=True) or {}
+        lib_cfg = c.config.get_section('library')
+
+        if 'rotation_enabled' in data:
+            lib_cfg['rotation_enabled'] = bool(data['rotation_enabled'])
+        if 'interval' in data:
+            lib_cfg['interval'] = max(1, int(data['interval'] or 10))
+
+        if 'items' in data:
+            updates = {it['id']: it for it in data['items'] if 'id' in it}
+            for item in lib_cfg.get('items', []):
+                upd = updates.get(item.get('id'))
+                if upd:
+                    if 'name' in upd:
+                        item['name'] = str(upd['name']).strip() or item['name']
+                    if 'duration' in upd:
+                        item['duration'] = max(1, int(upd['duration'] or 10))
+
+        c.config.set_section('library', lib_cfg)
+        return jsonify(status='ok', config=c.config.get_section('library'))
+
+    # ── Settings export / import ──────────────────────────────────────────────
+
+    @app.route('/api/config/export')
+    def config_export():
+        c = ctrl()
+        if not c:
+            return jsonify(error='controller not ready'), 503
+        payload = _json.dumps(c.config.get_all(), indent=2)
+        return Response(
+            payload,
+            mimetype='application/json',
+            headers={'Content-Disposition': 'attachment; filename="led-matrix-config.json"'},
+        )
+
+    @app.route('/api/config/import', methods=['POST'])
+    def config_import():
+        c = ctrl()
+        if not c:
+            return jsonify(error='controller not ready'), 503
+        data = request.get_json(force=True, silent=True)
+        if not isinstance(data, dict):
+            return jsonify(error='invalid JSON: expected object'), 400
+
+        old_spotify = c.config.get_section('spotify')
+        c.config.import_all(data)
+
+        new_spotify = c.config.get_section('spotify')
+        if any(old_spotify.get(k) != new_spotify.get(k)
+               for k in ('client_id', 'client_secret', 'redirect_uri', 'callback_path')):
+            spotify_mode = c.modes.get('spotify')
+            if spotify_mode:
+                spotify_mode.reinit()
+
+        c.refresh_brightness()
+
+        return jsonify(status='ok', config=c.config.get_all())
 
     # ── Shutdown ──────────────────────────────────────────────────────────────
 

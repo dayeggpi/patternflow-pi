@@ -6,7 +6,7 @@ Original 3D print enclosure : https://www.printables.com/model/850534-rgb-led-cl
 
 Fits a HUB75 64x32 3mm pitch. It is important to print the Screen on the lowest layer height possible (max 0.2 mm)
 
-A full-featured controller for a **64×32 RGB LED matrix** driven by a Raspberry Pi with the Adafruit RGB Matrix Bonnet. Modes: digital clock, Spotify now-playing, Conway's Game of Life, scrolling text, Patternflow, pixel draw, Pomodoro timer, reminders, and image/GIF display. Controlled via REST API and a built-in web interface.
+A full-featured controller for a **64×32 RGB LED matrix** driven by a Raspberry Pi with the Adafruit RGB Matrix Bonnet. Modes: digital clock, Spotify now-playing, Conway's Game of Life, scrolling text, Patternflow, pixel draw, Pomodoro timer, reminders, image/GIF display, and image library. Controlled via REST API and a built-in web interface.
 
 ---
 
@@ -23,9 +23,11 @@ A full-featured controller for a **64×32 RGB LED matrix** driven by a Raspberry
 
 ## Current Features
 
-- Modes: clock, Spotify, Game of Life, text, Patternflow, draw, Pomodoro, background reminders, and image/GIF display.
-- Built-in web UI for mode switching, brightness, mode settings, carousel, reminders, image upload/crop, and service controls.
-- REST API for mode/config updates, Spotify OAuth, Patternflow controls, Pomodoro timer events, draw updates, image upload/delete, and system actions.
+- Modes: clock, Spotify, Game of Life, text, Patternflow, draw, Pomodoro, background reminders, image/GIF display, and image library.
+- Built-in web UI for mode switching, brightness, mode settings, carousel, reminders, image upload/crop, image library, and service controls.
+- REST API for mode/config updates, Spotify OAuth, Patternflow controls, Pomodoro timer events, draw updates, image upload/delete, library management, and system actions.
+- Settings export and import as a single JSON file.
+- Reminder color palettes: named palettes with instant load into any reminder.
 - Matrix runtime tuning through config for GPIO slowdown, PWM bits, refresh-rate limiting, and hardware pulsing.
 
 ---
@@ -101,6 +103,7 @@ main.py            ← render loop + controller
     ├── pomodoro.py   ← Gradient progress timer
     ├── reminder.py   ← Background-triggered text takeover
     ├── image.py      ← Static image and animated GIF display
+    ├── library.py    ← Persistent image library with rotation
     └── patternflow/  ← Generative pattern engine
 ```
 
@@ -110,11 +113,38 @@ Reminder scheduling is handled by the controller in the background: when a remin
 
 `ImageMode` stores the uploaded media at `static/matrix_image.png` (static) or `static/matrix_image.gif` (animated). The GIF path takes priority when both exist. All frames are pre-loaded and resized to 64×32 on first read; frame advancement is driven by `time.time()` against each frame's original duration.
 
+`LibraryMode` stores its files in `static/library/<id>.<ext>`. PNGs may be wider than 64 px (saved from scrolling draw canvases); the mode handles wrap-around scrolling identically to `DrawMode`. GIFs are always 64×32 and animate normally. The item list and rotation settings are re-read from config every second so changes made through the API or UI take effect without a mode restart.
+
 ---
 
 ## Recent Changes
 
-### 2026-07-10
+### 2026-07-10 (latest)
+
+- Added **Library** mode (`modes/library.py`):
+  - Save any uploaded image/GIF or pixel drawing to a persistent library stored in `static/library/`.
+  - Library mode cycles through saved items; each item has a configurable display duration.
+  - Wide PNGs from scrolling draw canvases are stored at their original width and scroll wrap-around, identical to Draw mode.
+  - Animated GIFs animate normally.
+  - "Save to Library" button (with optional name field) added to both the Image panel and Draw panel in the web UI.
+  - Library tab in the web UI: rename items, set per-item duration, remove items, toggle auto-rotation, set default interval, and activate library mode directly.
+  - Config is re-read live so additions/removals take effect without restarting the mode.
+  - REST API: `GET /api/library`, `POST /api/library/add/image`, `POST /api/library/add/draw`, `DELETE /api/library/<id>`, `POST /api/library/config`.
+
+- Added **Settings export / import**:
+  - `GET /api/config/export` — downloads the full `config.json` as an attachment (`led-matrix-config.json`).
+  - `POST /api/config/import` — accepts a previously exported JSON and deep-merges it into the live config, triggering Spotify reinit and brightness refresh as needed.
+  - Export and Import buttons in the System section of the web UI.
+
+- Added **Reminder color palettes**:
+  - Named palettes stored under `reminders.palettes` in config; each palette holds a text color and two gradient colors.
+  - Four built-in palettes shipped as defaults: Classic, Ocean, Sunset, Forest.
+  - Color Palettes card at the top of the Reminders tab: create palettes (name + 3 color pickers), edit and save existing palettes, delete palettes.
+  - Each reminder row now has a palette selector dropdown — choosing a palette instantly fills that reminder's three color pickers; the selector resets afterward (colors are owned by the reminder, not the palette).
+  - Clear button in each reminder row resets colors to the Classic defaults.
+  - REST API: `POST /api/reminders/palettes` (create or update), `DELETE /api/reminders/palettes/<id>`.
+
+### 2026-07-09
 
 - Added **Image / GIF** mode:
   - Upload any static image (JPEG, PNG, WebP, …) or animated GIF via the web UI.
@@ -211,7 +241,7 @@ Config is stored at `/opt/led-matrix/config.json` and updated live through the A
   },
   "carousel": {
     "enabled": false,
-    "modes": ["clock", "spotify", "gameoflife", "text", "patternflow", "draw", "pomodoro", "image"],
+    "modes": ["clock", "spotify", "gameoflife", "text", "patternflow", "draw", "pomodoro", "library"],
     "durations": {
       "clock": 30,
       "spotify": 30,
@@ -220,7 +250,7 @@ Config is stored at `/opt/led-matrix/config.json` and updated live through the A
       "patternflow": 30,
       "draw": 30,
       "pomodoro": 30,
-      "image": 30
+      "library": 30
     }
   },
   "clock": {
@@ -285,6 +315,12 @@ Config is stored at `/opt/led-matrix/config.json` and updated live through the A
   },
   "reminders": {
     "enabled": false,
+    "palettes": [
+      {"id": "pal-classic", "name": "Classic", "text_color": [255, 255, 255], "gradient_start": [20, 30, 80],   "gradient_end": [180, 40, 80]},
+      {"id": "pal-ocean",   "name": "Ocean",   "text_color": [220, 240, 255], "gradient_start": [10, 40, 100],  "gradient_end": [0, 80, 160]},
+      {"id": "pal-sunset",  "name": "Sunset",  "text_color": [255, 230, 180], "gradient_start": [160, 50, 0],   "gradient_end": [120, 0, 40]},
+      {"id": "pal-forest",  "name": "Forest",  "text_color": [200, 255, 200], "gradient_start": [10, 60, 20],   "gradient_end": [0, 100, 40]}
+    ],
     "items": [
       {
         "id": "standup",
@@ -295,6 +331,22 @@ Config is stored at `/opt/led-matrix/config.json` and updated live through the A
         "gradient_start": [20, 30, 80],
         "gradient_end": [180, 40, 80],
         "display_time_s": 10
+      }
+    ]
+  },
+  "library": {
+    "rotation_enabled": true,
+    "interval": 10,
+    "items": [
+      {
+        "id": "a1b2c3d4e5f6a7b8",
+        "name": "My Drawing",
+        "filename": "a1b2c3d4e5f6a7b8.png",
+        "width": 64,
+        "scroll": false,
+        "scroll_speed": 20,
+        "duration": 10,
+        "source": "draw"
       }
     ]
   }
@@ -312,19 +364,22 @@ Open `http://<pi-ip>:8080` in any browser.
 
 Current UI sections:
 
-- **Mode** - switch foreground modes instantly.
-- **Brightness** - 1-100% slider.
-- **Clock** - color picker and seconds toggle.
-- **Text** - manual or URL content, color, scroll speed, and scroll toggle.
-- **Game of Life** - color, speed, and edge wrap.
-- **Spotify** - credentials, authorize button, callback path, and artist/track scroll speeds.
-- **Draw** - pixel canvas, pen/eraser, width controls, optional scrolling, and text placement.
-- **Pomodoro** - gradient, background, text, tick pixel, flash, and return-after-elapsed settings.
-- **Patternflow** - pattern selector, web knob/button controls, FPS overlay, Donut fast render, and fast image push.
-- **Image** - upload a static image or animated GIF, crop/zoom in the browser, see a live pixelated preview; remove button clears and returns to clock.
-- **Carousel tab** - enable carousel rotation and set per-mode durations.
-- **Reminders tab** - enable reminders and add/edit/delete timed reminder takeovers.
-- **System** - restart service, stop service, disable autostart, and shutdown Pi.
+- **Mode** — switch foreground modes instantly.
+- **Brightness** — 1–100% slider.
+- **Night Mode** — auto-dim between configurable hours at a lower brightness.
+- **Clock** — color picker and seconds toggle.
+- **Text** — manual or URL content, color, scroll speed, and scroll toggle.
+- **Game of Life** — color, speed, and edge wrap.
+- **Spotify** — credentials, authorize button, callback path, and artist/track scroll speeds.
+- **Draw** — pixel canvas, pen/eraser, width controls, optional scrolling, text placement, and "Save to Library" button.
+- **Pomodoro** — gradient, background, text, tick pixel, flash, and return-after-elapsed settings.
+- **Patternflow** — pattern selector, web knob/button controls, FPS overlay, Donut fast render, and fast image push.
+- **Image** — upload a static image or animated GIF, crop/zoom in the browser, see a live pixelated preview; remove button clears and returns to clock; "Save to Library" button saves the current image.
+- **Library** — displays current library status; "Manage Library" button jumps to the Library tab.
+- **Carousel tab** — enable carousel rotation and set per-mode durations.
+- **Reminders tab** — Color Palettes card (create/edit/delete named palettes; load into any reminder via dropdown; clear colors); Reminders card (enable, add/edit/delete timed reminder takeovers).
+- **Library tab** — manage saved items (rename, set duration, remove), toggle auto-rotation, set default display interval, activate library mode directly.
+- **System** — export all settings as JSON, import a previously exported JSON, restart service, stop service, disable autostart, and shutdown Pi.
 
 ## REST API
 
@@ -337,7 +392,7 @@ Returns current mode, brightness, full config.
 ```json
 // POST body
 { "mode": "clock" }
-// modes: "clock", "spotify", "gameoflife", "text", "patternflow", "draw", "pomodoro", "image"
+// modes: "clock", "spotify", "gameoflife", "text", "patternflow", "draw", "pomodoro", "image", "library"
 ```
 
 `reminder` is an internal temporary display mode. It is triggered by the reminders scheduler and should not normally be selected manually.
@@ -363,7 +418,7 @@ Returns current mode, brightness, full config.
 `speed`: pixels per second (scrolling)
 
 ### GET|POST /api/config/{section}
-`section` = `clock` | `text` | `gameoflife` | `spotify` | `patternflow` | `matrix` | `carousel` | `draw` | `pomodoro` | `reminders`
+`section` = `clock` | `text` | `gameoflife` | `spotify` | `patternflow` | `matrix` | `carousel` | `draw` | `pomodoro` | `reminders` | `night_mode`
 
 GET returns current section config.  
 POST merges the body into that section's config.
@@ -407,11 +462,20 @@ GET returns Pomodoro display config. POST accepts timer events from an external 
 Supported stop-like events/states include `stop`, `stopped`, `cancel`, `cancelled`, `reset`, `end`, and `idle`. Pause-like events/states include `pause` and `paused`.
 
 ### Reminder config
-Reminders are managed through `GET|POST /api/config/reminders`.
+Reminders are managed through `GET|POST /api/config/reminders`. The body can include `enabled`, `items`, and `palettes`.
 
 ```json
 {
   "enabled": true,
+  "palettes": [
+    {
+      "id": "pal-ocean",
+      "name": "Ocean",
+      "text_color": [220, 240, 255],
+      "gradient_start": [10, 40, 100],
+      "gradient_end": [0, 80, 160]
+    }
+  ],
   "items": [
     {
       "id": "water",
@@ -428,6 +492,56 @@ Reminders are managed through `GET|POST /api/config/reminders`.
 ```
 
 Reminder times use the Raspberry Pi's local time in `HH:MM` 24-hour format. Each enabled reminder fires once per local calendar day for its configured time.
+
+### POST /api/reminders/palettes
+Create a new palette (no `id` field) or update an existing one (provide `id`). Returns the full updated reminders config.
+
+```json
+{ "name": "Ocean", "text_color": [220, 240, 255], "gradient_start": [10, 40, 100], "gradient_end": [0, 80, 160] }
+```
+
+### DELETE /api/reminders/palettes/{id}
+Removes the palette with the given ID. Returns the full updated reminders config.
+
+### Library API
+
+```text
+GET  /api/library                  — list items and settings
+POST /api/library/add/image        — copy current matrix image into library
+POST /api/library/add/draw         — render current draw pixels into library
+DELETE /api/library/{id}           — remove item (deletes file + config entry)
+POST /api/library/config           — update rotation_enabled, interval, item name/duration
+```
+
+**POST /api/library/add/image** and **POST /api/library/add/draw** both accept an optional `name` field in the JSON body. `/add/draw` reads the current draw config (pixels, width, scroll, scroll_speed) at the time of the call and renders it to a PNG.
+
+**POST /api/library/config** body:
+```json
+{
+  "rotation_enabled": true,
+  "interval": 10,
+  "items": [
+    { "id": "a1b2c3d4e5f6a7b8", "name": "My Drawing", "duration": 15 }
+  ]
+}
+```
+Only `name` and `duration` are merged from the `items` array; file metadata is preserved.
+
+### Settings export / import
+
+**GET /api/config/export** — returns the full config as a downloadable JSON file (`Content-Disposition: attachment; filename="led-matrix-config.json"`).
+
+**POST /api/config/import** — accepts a JSON object (previously exported config) and deep-merges it into the live config. Triggers Spotify reinit if OAuth settings changed, and brightness refresh if night mode settings changed. Returns the resulting full config.
+
+```bash
+# Export
+curl http://pi-ip:8080/api/config/export -o my-backup.json
+
+# Import
+curl -X POST http://pi-ip:8080/api/config/import \
+  -H 'Content-Type: application/json' \
+  -d @my-backup.json
+```
 
 ### Patternflow API
 

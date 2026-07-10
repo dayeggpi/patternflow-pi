@@ -514,6 +514,212 @@ label input[type="file"] {
   cursor: pointer;
 }
 
+/* ── Reminder palettes ───────────────────────────────────────────────────── */
+
+.palette-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.palette-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+}
+
+.pal-colors {
+  display: flex;
+  gap: 4px;
+}
+
+.pal-colors label,
+.palette-new-colors label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 0;
+  font-size: 9px;
+  color: var(--muted);
+  letter-spacing: 0;
+}
+
+.pal-colors input[type="color"],
+.palette-new-colors input[type="color"] {
+  width: 26px;
+  height: 22px;
+}
+
+.pal-name-input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 4px 7px;
+  font-size: 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.pal-action-btn {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+.palette-new-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.palette-new-form > input[type="text"] {
+  flex: 1;
+  min-width: 100px;
+}
+
+.palette-new-colors {
+  display: flex;
+  gap: 4px;
+}
+
+.rem-palette-bar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+
+.rem-palette-sel {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 4px 6px;
+  font-size: 12px;
+}
+
+.rem-clear-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+.rem-clear-btn:hover { color: var(--text); border-color: var(--text); }
+
+/* ── Library ─────────────────────────────────────────────────────────────── */
+
+.lib-list {
+  display: grid;
+  gap: 10px;
+  margin: 10px 0 14px;
+}
+
+.lib-item-row {
+  display: grid;
+  grid-template-columns: 68px 1fr auto;
+  gap: 10px;
+  align-items: start;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  background: var(--bg);
+}
+
+.lib-thumb {
+  display: block;
+  width: 64px;
+  height: 32px;
+  object-fit: cover;
+  object-position: left;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: #000;
+}
+
+.lib-item-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.lib-name-input {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 4px 7px;
+  font-size: 12px;
+}
+
+.lib-duration-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.lib-duration-input {
+  width: 60px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 3px 6px;
+  font-size: 12px;
+}
+
+.lib-item-source {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.lib-item-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.lib-item-actions button {
+  padding: 5px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.lib-add-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.lib-add-row input {
+  flex: 1;
+  min-width: 0;
+}
+
 @media (max-width: 520px) {
   .reminder-row {
     grid-template-columns: 1fr 1fr;
@@ -533,5 +739,15 @@ label input[type="file"] {
 
   .draw-text-row button {
     grid-column: 1 / -1;
+  }
+
+  .lib-item-row {
+    grid-template-columns: 64px 1fr;
+  }
+
+  .lib-item-actions {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    flex-wrap: wrap;
   }
 }
